@@ -226,6 +226,132 @@ def build_layout(_plot_df):
         hovermode="closest", dragmode="pan",
         font=dict(family="Inter, sans-serif"), clickmode="event")
 
+RADAR_STATS = [
+    ("Scoring", "ppg", "PPG", "{:.1f}"),
+    ("Rebounding", "rpg", "RPG", "{:.1f}"),
+    ("Playmaking", "apg", "APG", "{:.1f}"),
+    ("Takeaways", "spg", "SPG", "{:.2f}"),
+    ("Rim Defense", "bpg", "BPG", "{:.2f}"),
+    ("Efficiency", "ts", "TS%", "{:.1%}"),
+]
+
+RADAR_PALETTE = [
+    "#c8a84b", "#4a9eed", "#7cc47a", "#e8a44a",
+    "#d86f74", "#8d7cc4", "#38a6a5", "#c47a1d",
+]
+
+def percentile_value(series, value):
+    vals = pd.to_numeric(series, errors="coerce").dropna().sort_values().to_numpy()
+    if len(vals) == 0:
+        return 0.0
+    return float(np.searchsorted(vals, float(value), side="right") / len(vals) * 100)
+
+def hex_to_rgba(hex_color, alpha):
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return hex_color
+    r, g, b = (int(h[i:i+2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+def watchlist_rows(player_ids):
+    rows = []
+    for pid in player_ids:
+        if pid.startswith("d1"):
+            df_, div_ = d1_df, "D-I"
+        elif pid.startswith("d3"):
+            df_, div_ = d3_df, "D-III"
+        else:
+            df_, div_ = d2_df, "D-II"
+        row_ = df_[df_["id"] == pid]
+        if row_.empty:
+            continue
+        rows.append((pid, row_.iloc[0], df_, div_))
+    return sorted(rows, key=lambda x: (x[3], str(x[1]["name"])))
+
+def make_watchlist_radar(player_ids):
+    fig = go.Figure()
+    rows = watchlist_rows(player_ids)
+
+    if not rows:
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
+        return fig
+
+    theta = [s[0] for s in RADAR_STATS]
+    theta_closed = theta + [theta[0]]
+
+    for i, (_pid, r, df_, div_) in enumerate(rows):
+        values = [percentile_value(df_[col], r[col]) for _, col, _, _ in RADAR_STATS]
+        values_closed = values + [values[0]]
+        actual = [fmt.format(float(r[col])) for _, col, _, fmt in RADAR_STATS]
+        actual_closed = actual + [actual[0]]
+        labels = [label for _, _, label, _ in RADAR_STATS]
+        labels_closed = labels + [labels[0]]
+        color = RADAR_PALETTE[i % len(RADAR_PALETTE)]
+
+        fig.add_trace(go.Scatterpolar(
+            r=values_closed,
+            theta=theta_closed,
+            mode="lines+markers",
+            name=f"{r['name']} · {div_}",
+            line=dict(color=color, width=2),
+            marker=dict(size=5, color=color),
+            fill="toself" if len(rows) <= 4 else "none",
+            fillcolor=hex_to_rgba(color, 0.12),
+            opacity=0.78,
+            customdata=list(zip(labels_closed, actual_closed)),
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>"
+                "%{customdata[0]}: %{customdata[1]}<br>"
+                "Division percentile: %{r:.0f}"
+                "<extra></extra>"
+            ),
+        ))
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=34, r=34, t=22, b=22),
+        showlegend=True,
+        legend=dict(
+            orientation="v",
+            x=1.04,
+            y=0.5,
+            xanchor="left",
+            yanchor="middle",
+            font=dict(size=10, family="JetBrains Mono, monospace", color="#4a6080"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(
+                range=[0, 100],
+                tickvals=[25, 50, 75, 100],
+                tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#6c7f9d"),
+                gridcolor="#d7dfeb",
+                linecolor="#bfcadd",
+                angle=90,
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=11, family="Inter, sans-serif", color="#1e2d47"),
+                gridcolor="#d7dfeb",
+                linecolor="#bfcadd",
+            ),
+        ),
+        hoverlabel=dict(
+            bgcolor="#1a2540",
+            bordercolor="#c8a84b",
+            font=dict(family="JetBrains Mono, monospace", size=11, color="#c8d4e8"),
+        ),
+        font=dict(family="Inter, sans-serif"),
+    )
+    return fig
+
 def legend_html(dimmed_pos):
     parts = []
     for pos in POSITIONS:
@@ -412,6 +538,27 @@ app_ui = ui.page_fluid(
                 display:grid;
                 grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));
                 gap:12px; padding:18px 24px; align-content:start;
+            }
+            .wl-radar-wrap {
+                border-bottom:1px solid var(--rule);
+                padding:14px 24px 10px;
+                flex-shrink:0;
+                background:var(--bg);
+            }
+            .wl-radar-head {
+                display:flex; justify-content:space-between; align-items:baseline;
+                margin-bottom:6px; gap:12px;
+            }
+            .wl-radar-title {
+                font-family:var(--sans); font-size:10px; font-weight:700;
+                letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3);
+            }
+            .wl-radar-note {
+                font-family:var(--mono); font-size:9.5px; color:var(--ink-3);
+            }
+            .wl-radar {
+                height:320px;
+                min-height:260px;
             }
             .wl-card {
                 background:var(--bg-2); border:1px solid var(--rule-2);
@@ -1105,7 +1252,21 @@ def server(input, output, session):
         js  = f"var b=document.getElementById('wl-badge');if(b){{b.textContent='{n}';b.style.display='{vis}';}}"
         return ui.div(
             ui.tags.script(js),
+            ui.div(
+                {"class": "wl-radar-wrap"},
+                ui.div(
+                    {"class": "wl-radar-head"},
+                    ui.div("Radar Comparison", class_="wl-radar-title"),
+                    ui.div("percentile within each player's division", class_="wl-radar-note"),
+                ),
+                ui.div({"class": "wl-radar"}, output_widget("watchlist_radar")),
+            ),
             ui.div({"class": "wl-grid"}, *cards))
+
+    @output
+    @render_widget
+    def watchlist_radar():
+        return make_watchlist_radar(watchlist.get())
 
 
 app = App(app_ui, server, static_assets=HERE / "www")
