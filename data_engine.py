@@ -136,7 +136,8 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     # (can happen with tiny datasets or near-constant PCs)
     cov   += np.eye(len(SIM_KEYS)) * 1e-6
     VI     = np.linalg.inv(cov)          # inverse covariance matrix
-    '''
+    
+    
     # z-score PCs for similarity
     for k in SIM_KEYS:
         mu = df[k].mean()
@@ -145,7 +146,7 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
 
     Z_cols = [f"_z_{k}" for k in SIM_KEYS]
     Z      = df[Z_cols].values
-'''
+
     # league averages
     avg_cols = ["ppg","rpg","apg","spg","bpg","tov","fg","tp","ft","ts","usg","mpg"]
     league_avg = {c: float(df[c].mean()) for c in avg_cols}
