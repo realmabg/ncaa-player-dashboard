@@ -11,6 +11,7 @@ D-I  column set  → load_d1_data()  (barttorvik/kenpom schema, different names 
 import pandas as pd
 import numpy as np
 import re
+from scipy.spatial.distance import cdist
 
 POS_COLOR = {
     "G":   "#2c5e7a",
@@ -128,6 +129,14 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     df = df[df["name"].str.len() > 0].copy().reset_index(drop=True)
     df["id"] = [id_prefix + str(i) for i in range(len(df))]
 
+    # ── Mahalanobis setup ────────────────────────────────────────
+    PC_mat = df[SIM_KEYS].values.astype(float)
+    cov    = np.cov(PC_mat, rowvar=False)
+    # Regularise: add small diagonal to avoid singular matrix
+    # (can happen with tiny datasets or near-constant PCs)
+    cov   += np.eye(len(SIM_KEYS)) * 1e-6
+    VI     = np.linalg.inv(cov)          # inverse covariance matrix
+    '''
     # z-score PCs for similarity
     for k in SIM_KEYS:
         mu = df[k].mean()
@@ -136,7 +145,7 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
 
     Z_cols = [f"_z_{k}" for k in SIM_KEYS]
     Z      = df[Z_cols].values
-
+'''
     # league averages
     avg_cols = ["ppg","rpg","apg","spg","bpg","tov","fg","tp","ft","ts","usg","mpg"]
     league_avg = {c: float(df[c].mean()) for c in avg_cols}
@@ -159,12 +168,17 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
         idx = df.index[df["id"] == player_id]
         if len(idx) == 0:
             return []
-        i     = idx[0]
-        dists = np.sqrt(((Z - Z[i]) ** 2).sum(axis=1))
+        i    = idx[0]
+        vec  = PC_mat[i].reshape(1, -1)          # (1, 4)
+
+        # cdist with Mahalanobis returns shape (1, N)
+        dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
         dists[i] = np.inf
+
         sorted_idx = np.argsort(dists)
         ref_idx    = min(len(dists) - 1, max(20, n_sim * 4))
         ref_dist   = dists[sorted_idx[ref_idx]] or 1.0
+
         results = []
         for j in sorted_idx[:n_sim]:
             row = df.iloc[j]
@@ -181,10 +195,9 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
                 "distance":   float(dists[j]),
             })
         return results
-
+    
     return {
         "df":          df,
-        "Z":           Z,
         "conferences": conferences,
         "positions":   POSITIONS,
         "classes":     CLASSES,
@@ -192,7 +205,6 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
         "similar_to":  similar_to,
         "height_str":  height_str,
     }
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # D-II LOADER  (original schema)
@@ -274,7 +286,6 @@ def load_d1_data(csv_path: str, id_prefix: str = "d1p") -> dict:
     # Identity
     df["name"]     = raw["player_name"].str.strip()
     df["team"]     = raw["team"].str.strip()
-    # conf is already short (e.g. "B10") — use as both abbr and full name
     df["conf"]     = raw["conf"].str.strip()
     df["confName"] = df["conf"].map(D1_CONF_NAMES).fillna(df["conf"])
 
