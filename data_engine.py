@@ -129,7 +129,11 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     df = df[df["name"].str.len() > 0].copy().reset_index(drop=True)
     df["id"] = [id_prefix + str(i) for i in range(len(df))]
 
+<<<<<<< HEAD
     # ── Similarity setup ─────────────────────────────────────────
+=======
+    # ── Mahalanobis setup ────────────────────────────────────────
+>>>>>>> 7765501 (fixed TSpct)
     PC_mat = df[SIM_KEYS].values.astype(float)
     cov    = np.cov(PC_mat, rowvar=False)
     # Regularise: add small diagonal to avoid singular matrix
@@ -172,10 +176,15 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
         i    = idx[0]
         vec  = PC_mat[i].reshape(1, -1)          # (1, 4)
 
+<<<<<<< HEAD
         if metric == "euclidean":
             dists = cdist(vec, PC_mat, metric="euclidean").flatten()
         else:
             dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
+=======
+        # cdist with Mahalanobis returns shape (1, N)
+        dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
+>>>>>>> 7765501 (fixed TSpct)
         dists[i] = np.inf
 
         sorted_idx = np.argsort(dists)
