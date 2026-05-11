@@ -4,6 +4,8 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import html
+import re
 
 from data_engine import (
     load_data, load_d1_data,
@@ -27,6 +29,129 @@ D1_TOTAL      = len(d1_df)
 d3_df         = D3["df"];  d3_conferences = D3["conferences"]
 d3_league_avg = D3["league_avg"];  d3_similar_to = D3["similar_to"]
 D3_TOTAL      = len(d3_df)
+
+ARCHETYPE_LABELS = {
+    "score_pg_combo": "PG / Combo Guard",
+    "score_wing_2_4": "2-4 Interchangeable Wing",
+    "score_stretch_big": "5 / Stretch 4 / Big Wing",
+}
+
+ARCHETYPE_COLOR = {
+    "PG / Combo Guard": "#4a9eed",
+    "2-4 Interchangeable Wing": "#7cc47a",
+    "5 / Stretch 4 / Big Wing": "#e8a44a",
+}
+
+ARCHETYPE_ORDER = list(ARCHETYPE_COLOR)
+ARCHETYPE_PCA_FEATURES = [
+    "pct_assist_creation",
+    "pct_three_pct",
+    "pct_three_rate",
+    "pct_ast_tov",
+    "pct_efg",
+    "pct_dreb_pos_adj",
+    "pct_size",
+]
+
+
+def add_archetype_columns(dfs):
+    frames = []
+    for div, df in dfs:
+        tmp = df.copy()
+        tmp["_arch_division"] = div
+        frames.append(tmp)
+    all_df = pd.concat(frames, ignore_index=True)
+
+    def pct(group_cols, col):
+        return all_df.groupby(group_cols)[col].rank(pct=True, method="average") * 100
+
+    all_df["pct_assist_creation"] = pct("_arch_division", "assist_creation")
+    all_df["pct_three_pct"] = pct("_arch_division", "tp")
+    all_df["pct_three_rate"] = pct("_arch_division", "three_share")
+    all_df["pct_ast_tov"] = pct("_arch_division", "ast_tov")
+    all_df["pct_efg"] = pct("_arch_division", "efg")
+    all_df["pct_dreb_pos_adj"] = pct(["_arch_division", "pos"], "dreb_arch")
+    all_df["pct_size"] = pct("_arch_division", "heightIn")
+
+    all_df["meets_pg_preferred"] = (
+        (all_df["pct_assist_creation"] >= 70)
+        & (all_df["tp"] >= 0.330)
+        & (all_df["three_share"] >= 0.300)
+        & (all_df["ast_tov"] > 1.0)
+    )
+    all_df["meets_wing_preferred"] = (
+        (all_df["pct_dreb_pos_adj"] >= 60)
+        & (all_df["tp"] >= 0.330)
+        & (all_df["three_share"] >= 0.300)
+        & (all_df["ast_tov"] > 1.0)
+    )
+    all_df["meets_big_preferred"] = (
+        (all_df["heightIn"] >= 79)
+        & (all_df["pct_dreb_pos_adj"] >= 60)
+        & (all_df["tp"] >= 0.300)
+        & (all_df["three_share"] >= 0.250)
+        & (all_df["ast_tov"] > 1.0)
+    )
+
+    all_df["score_pg_combo"] = (
+        0.35 * all_df["pct_assist_creation"]
+        + 0.20 * all_df["pct_three_pct"]
+        + 0.15 * all_df["pct_three_rate"]
+        + 0.20 * all_df["pct_ast_tov"]
+        + 0.10 * all_df["pct_efg"]
+        + np.where(all_df["meets_pg_preferred"], 8, 0)
+    ).clip(0, 100)
+    all_df["score_wing_2_4"] = (
+        0.30 * all_df["pct_dreb_pos_adj"]
+        + 0.25 * all_df["pct_three_pct"]
+        + 0.20 * all_df["pct_three_rate"]
+        + 0.15 * all_df["pct_ast_tov"]
+        + 0.10 * all_df["pct_size"]
+        + np.where(all_df["meets_wing_preferred"], 8, 0)
+    ).clip(0, 100)
+    all_df["score_stretch_big"] = (
+        0.30 * all_df["pct_dreb_pos_adj"]
+        + 0.25 * all_df["pct_size"]
+        + 0.20 * all_df["pct_three_pct"]
+        + 0.15 * all_df["pct_three_rate"]
+        + 0.10 * all_df["pct_ast_tov"]
+        + np.where(all_df["meets_big_preferred"], 8, 0)
+    ).clip(0, 100)
+
+    score_cols = list(ARCHETYPE_LABELS)
+    all_df["primary_score_col"] = all_df[score_cols].idxmax(axis=1)
+    all_df["primary_archetype"] = all_df["primary_score_col"].map(ARCHETYPE_LABELS)
+    all_df["primary_score"] = all_df[score_cols].max(axis=1)
+
+    X_raw = all_df[ARCHETYPE_PCA_FEATURES].fillna(
+        all_df[ARCHETYPE_PCA_FEATURES].median()
+    ).to_numpy(dtype=float)
+    X_std = np.where(X_raw.std(axis=0) == 0, 1, X_raw.std(axis=0))
+    X = (X_raw - X_raw.mean(axis=0)) / X_std
+    _u, _s, vt = np.linalg.svd(X, full_matrices=False)
+    coords = X @ vt[:4].T
+    for i in range(4):
+        all_df[f"arch_pca_PC{i+1}"] = coords[:, i]
+
+    arch_cols = [
+        "pct_assist_creation", "pct_three_pct", "pct_three_rate",
+        "pct_ast_tov", "pct_efg", "pct_dreb_pos_adj", "pct_size",
+        "meets_pg_preferred", "meets_wing_preferred", "meets_big_preferred",
+        "score_pg_combo", "score_wing_2_4", "score_stretch_big",
+        "primary_score_col", "primary_archetype", "primary_score",
+        "arch_pca_PC1", "arch_pca_PC2", "arch_pca_PC3", "arch_pca_PC4",
+    ]
+    by_id = all_df.set_index("id")[arch_cols]
+    for _div, df in dfs:
+        for col in arch_cols:
+            df[col] = df["id"].map(by_id[col])
+
+
+add_archetype_columns([
+    ("D-I", d1_df),
+    ("D-II", d2_df),
+    ("D-III", d3_df),
+])
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -57,6 +182,76 @@ def bio_item(label, value, mono=False):
     return ui.div({"class": "bio-item"},
                   ui.div(label, class_="k"),
                   ui.div(value, class_="v mono" if mono else "v"))
+
+def inline_markdown(text):
+    text = html.escape(text)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
+    return text
+
+def simple_markdown_to_html(markdown_text):
+    html_parts = []
+    list_open = None
+
+    def close_list():
+        nonlocal list_open
+        if list_open:
+            html_parts.append(f"</{list_open}>")
+            list_open = None
+
+    for raw_line in markdown_text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        if not stripped:
+            close_list()
+            continue
+
+        if stripped.startswith("#"):
+            close_list()
+            level = min(len(stripped) - len(stripped.lstrip("#")), 3)
+            text = stripped[level:].strip()
+            html_parts.append(f"<h{level}>{inline_markdown(text)}</h{level}>")
+            continue
+
+        if stripped.startswith(">"):
+            close_list()
+            html_parts.append(f"<blockquote>{inline_markdown(stripped[1:].strip())}</blockquote>")
+            continue
+
+        if stripped.startswith("- "):
+            if list_open != "ul":
+                close_list()
+                html_parts.append("<ul>")
+                list_open = "ul"
+            html_parts.append(f"<li>{inline_markdown(stripped[2:].strip())}</li>")
+            continue
+
+        if re.match(r"^\d+\.\s+", stripped):
+            if list_open != "ol":
+                close_list()
+                html_parts.append("<ol>")
+                list_open = "ol"
+            text = re.sub(r"^\d+\.\s+", "", stripped)
+            html_parts.append(f"<li>{inline_markdown(text)}</li>")
+            continue
+
+        close_list()
+        html_parts.append(f"<p>{inline_markdown(stripped)}</p>")
+
+    close_list()
+    return "\n".join(html_parts)
+
+def make_explainer_page():
+    md_path = HERE / "archetype_process_explainer.md"
+    try:
+        content = md_path.read_text(encoding="utf-8")
+    except OSError:
+        content = "# Archetype Beta Process Explainer\n\nThe explainer file could not be loaded."
+    return ui.div(
+        {"class": "doc-shell"},
+        ui.div({"class": "doc-inner"},
+               ui.HTML(simple_markdown_to_html(content))))
 
 
 def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, watchlist):
@@ -179,6 +374,23 @@ def cdata(d):
     return list(zip(d["name"], d["pos"], d["team"], d["cls"],
                     d["ppg"],  d["rpg"], d["apg"],  d["id"]))
 
+ARCH_HOVER_TPL = (
+    "<b>%{customdata[0]}</b><br>"
+    "%{customdata[1]} · %{customdata[2]} · %{customdata[3]}<br>"
+    "%{customdata[4]} · %{customdata[5]:.0f} fit<br>"
+    "%{customdata[6]:.1%} 3P · %{customdata[7]:.1%} 3P rate · %{customdata[8]:.2f} A/TO<br>"
+    "%{customdata[9]:.0f} ast pctile · %{customdata[10]:.0f} dreb pctile"
+    "<extra></extra>"
+)
+
+def arch_cdata(d):
+    return list(zip(
+        d["name"], d["pos"], d["team"], d["cls"],
+        d["primary_archetype"], d["primary_score"],
+        d["tp"], d["three_share"], d["ast_tov"],
+        d["pct_assist_creation"], d["pct_dreb_pos_adj"], d["id"],
+    ))
+
 def build_traces(plot_df, selected_id, dimmed_pos, dot_size=9.5, dot_opacity=0.78):
     traces = []
     for pos in POSITIONS:
@@ -226,14 +438,81 @@ def build_layout(_plot_df):
         hovermode="closest", dragmode="pan",
         font=dict(family="Inter, sans-serif"), clickmode="event")
 
+def build_arch_traces(plot_df, dimmed_arch, dot_size=9.5, dot_opacity=0.82):
+    traces = []
+    for arch in ARCHETYPE_ORDER:
+        sub = plot_df[plot_df["primary_archetype"] == arch]
+        if sub.empty:
+            continue
+        alpha = 0.08 if arch in dimmed_arch else dot_opacity
+        traces.append(go.Scatter(
+            x=sub["arch_pca_PC1"],
+            y=sub["arch_pca_PC2"],
+            mode="markers",
+            marker=dict(
+                size=dot_size,
+                color=ARCHETYPE_COLOR[arch],
+                opacity=alpha,
+                line=dict(width=0),
+            ),
+            customdata=arch_cdata(sub),
+            hovertemplate=ARCH_HOVER_TPL,
+            name=arch,
+            showlegend=False,
+        ))
+    return traces
+
+def build_arch_layout(_plot_df):
+    axis = dict(
+        gridcolor="rgba(0,0,0,0)",
+        zeroline=True,
+        zerolinecolor="#1e2d47",
+        zerolinewidth=1.2,
+        tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#4a6080"),
+        linecolor="#1e2d47",
+        linewidth=1,
+    )
+    tf = dict(size=10, family="JetBrains Mono, monospace", color="#4a6080")
+    return go.Layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#0f1623",
+        margin=dict(l=76, r=18, t=16, b=66),
+        xaxis=dict(title="PC1 · size ↔ creator guard traits", title_font=tf, **axis),
+        yaxis=dict(title="PC2 · shooting / spacing strength", title_font=tf, **axis),
+        hoverlabel=dict(
+            bgcolor="#1a2540",
+            bordercolor="#c8a84b",
+            font=dict(family="JetBrains Mono, monospace", size=11.5, color="#c8d4e8"),
+        ),
+        hovermode="closest",
+        dragmode="pan",
+        font=dict(family="Inter, sans-serif"),
+        clickmode="event",
+    )
+
+def arch_legend_html(dimmed_arch):
+    parts = []
+    for arch in ARCHETYPE_ORDER:
+        cls = "legend-item dim" if arch in dimmed_arch else "legend-item"
+        col = ARCHETYPE_COLOR[arch]
+        parts.append(
+            f'<div class="{cls}" onclick="Shiny.setInputValue(\'toggle_arch_dim\','
+            f'\'{arch}\',{{priority:\'event\'}})">'
+            f'<span class="swatch" style="background:{col}"></span>'
+            f'<span>{arch}</span></div>')
+    parts.append('<span class="legend-hint">beta archetype PCA</span>')
+    return "".join(parts)
+
 RADAR_STATS = [
-    ("Scoring", "ppg", "PPG", "{:.1f}"),
-    ("Rebounding", "rpg", "RPG", "{:.1f}"),
-    ("Playmaking", "apg", "APG", "{:.1f}"),
-    ("Takeaways", "spg", "SPG", "{:.2f}"),
-    ("Rim Defense", "bpg", "BPG", "{:.2f}"),
-    ("Efficiency", "ts", "TS%", "{:.1%}"),
+    ("scoring", "Scoring", "ppg", "PPG", "{:.1f}"),
+    ("rebounding", "Rebounding", "rpg", "RPG", "{:.1f}"),
+    ("playmaking", "Playmaking", "apg", "APG", "{:.1f}"),
+    ("takeaways", "Takeaways", "spg", "SPG", "{:.2f}"),
+    ("rim_defense", "Rim Defense", "bpg", "BPG", "{:.2f}"),
+    ("efficiency", "Efficiency", "ts", "TS%", "{:.1%}"),
 ]
+DEFAULT_RADAR_STAT_KEYS = [key for key, *_ in RADAR_STATS]
+RADAR_STAT_LOOKUP = {key: stat for key, *stat in RADAR_STATS}
 
 RADAR_PALETTE = [
     "#c8a84b", "#4a9eed", "#7cc47a", "#e8a44a",
@@ -268,11 +547,13 @@ def watchlist_rows(player_ids):
         rows.append((pid, row_.iloc[0], df_, div_))
     return sorted(rows, key=lambda x: (x[3], str(x[1]["name"])))
 
-def make_watchlist_radar(player_ids):
+def make_watchlist_radar(player_ids, stat_keys=None):
     fig = go.Figure()
     rows = watchlist_rows(player_ids)
+    stat_keys = DEFAULT_RADAR_STAT_KEYS if stat_keys is None else stat_keys
+    stats = [RADAR_STAT_LOOKUP[key] for key in stat_keys if key in RADAR_STAT_LOOKUP]
 
-    if not rows:
+    if not rows or not stats:
         fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
@@ -282,15 +563,15 @@ def make_watchlist_radar(player_ids):
         )
         return fig
 
-    theta = [s[0] for s in RADAR_STATS]
+    theta = [s[0] for s in stats]
     theta_closed = theta + [theta[0]]
 
     for i, (_pid, r, df_, div_) in enumerate(rows):
-        values = [percentile_value(df_[col], r[col]) for _, col, _, _ in RADAR_STATS]
+        values = [percentile_value(df_[col], r[col]) for _, col, _, _ in stats]
         values_closed = values + [values[0]]
-        actual = [fmt.format(float(r[col])) for _, col, _, fmt in RADAR_STATS]
+        actual = [fmt.format(float(r[col])) for _, col, _, fmt in stats]
         actual_closed = actual + [actual[0]]
-        labels = [label for _, _, label, _ in RADAR_STATS]
+        labels = [label for _, _, label, _ in stats]
         labels_closed = labels + [labels[0]]
         color = RADAR_PALETTE[i % len(RADAR_PALETTE)]
 
@@ -299,11 +580,15 @@ def make_watchlist_radar(player_ids):
             theta=theta_closed,
             mode="lines+markers",
             name=f"{r['name']} · {div_}",
-            line=dict(color=color, width=2),
-            marker=dict(size=5, color=color),
-            fill="toself" if len(rows) <= 4 else "none",
-            fillcolor=hex_to_rgba(color, 0.12),
-            opacity=0.78,
+            line=dict(color=color, width=2.4),
+            marker=dict(
+                size=8,
+                color=color,
+                opacity=1,
+                line=dict(color="#0f1623", width=1.6),
+            ),
+            fill="none",
+            opacity=1,
             customdata=list(zip(labels_closed, actual_closed)),
             hovertemplate=(
                 "<b>%{fullData.name}</b><br>"
@@ -314,6 +599,7 @@ def make_watchlist_radar(player_ids):
         ))
 
     fig.update_layout(
+        template=None,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=34, r=34, t=22, b=22),
@@ -324,7 +610,7 @@ def make_watchlist_radar(player_ids):
             y=0.5,
             xanchor="left",
             yanchor="middle",
-            font=dict(size=10, family="JetBrains Mono, monospace", color="#4a6080"),
+            font=dict(size=10, family="JetBrains Mono, monospace", color="#f4f7fb"),
             bgcolor="rgba(0,0,0,0)",
         ),
         polar=dict(
@@ -332,15 +618,15 @@ def make_watchlist_radar(player_ids):
             radialaxis=dict(
                 range=[0, 100],
                 tickvals=[25, 50, 75, 100],
-                tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#6c7f9d"),
-                gridcolor="#d7dfeb",
-                linecolor="#bfcadd",
+                tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#f4f7fb"),
+                gridcolor="rgba(244,247,251,0.24)",
+                linecolor="rgba(244,247,251,0.34)",
                 angle=90,
             ),
             angularaxis=dict(
-                tickfont=dict(size=11, family="Inter, sans-serif", color="#1e2d47"),
-                gridcolor="#d7dfeb",
-                linecolor="#bfcadd",
+                tickfont=dict(size=11, family="Inter, sans-serif", color="#ffffff"),
+                gridcolor="rgba(244,247,251,0.24)",
+                linecolor="rgba(244,247,251,0.34)",
             ),
         ),
         hoverlabel=dict(
@@ -462,6 +748,83 @@ def make_plot_area(prefix):
                output_widget(f"{prefix}_scatter")),
     )
 
+def make_arch_sidebar(prefix, df, conferences):
+    conf_choices = {c["conf"]: c["confName"]
+                    for c in sorted(conferences, key=lambda x: x["confName"])}
+    return ui.div(
+        {"class": "sidebar"},
+        ui.div("Beta Filters", class_="sb-title"),
+        ui.div(ui.div("Search by name", class_="sb-section-head"),
+               ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
+               class_="sb-section"),
+        ui.div(ui.div(ui.span("Archetype"),
+                      ui.tags.button("clear", class_="clear-btn",
+                          onclick=f"Shiny.setInputValue('{prefix}_clear_arch',Math.random())"),
+                      class_="sb-section-head"),
+               ui.input_checkbox_group(f"{prefix}_archetypes", None,
+                                       choices={a: a for a in ARCHETYPE_ORDER}),
+               class_="sb-section"),
+        ui.div(ui.div(ui.span("Position"),
+                      ui.tags.button("clear", class_="clear-btn",
+                          onclick=f"Shiny.setInputValue('{prefix}_clear_pos',Math.random())"),
+                      class_="sb-section-head"),
+               ui.input_checkbox_group(f"{prefix}_positions", None,
+                                       choices={p: p for p in POSITIONS}),
+               class_="sb-section"),
+        ui.div(ui.div(ui.span("Class"),
+                      ui.tags.button("clear", class_="clear-btn",
+                          onclick=f"Shiny.setInputValue('{prefix}_clear_cls',Math.random())"),
+                      class_="sb-section-head"),
+               ui.input_checkbox_group(f"{prefix}_classes", None,
+                                       choices={c: c for c in CLASSES}),
+               class_="sb-section"),
+        ui.div(ui.div(ui.span("Conference"),
+                      ui.tags.button("clear", class_="clear-btn",
+                          onclick=f"Shiny.setInputValue('{prefix}_clear_conf',Math.random())"),
+                      class_="sb-section-head"),
+               ui.input_checkbox_group(f"{prefix}_confs", None, choices=conf_choices),
+               class_="sb-section"),
+        ui.div(ui.div("Team", class_="sb-section-head"),
+               ui.input_select(f"{prefix}_team", None,
+                   choices=["All teams"] + sorted(df["team"].unique().tolist())),
+               class_="sb-section"),
+        ui.div(ui.div("Archetype score", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_score", None, min=0, max=100,
+                               value=[0, 100], step=1),
+               class_="sb-section"),
+        ui.div(ui.div("3P%", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_tp_range", None, min=0.0, max=0.75,
+                               value=[0.0, 0.75], step=0.01),
+               class_="sb-section"),
+        ui.div(ui.div("3P Share", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_three_share", None, min=0.0, max=1.0,
+                               value=[0.0, 1.0], step=0.01),
+               class_="sb-section"),
+        ui.div(ui.div("AST / TOV ratio", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_ast_tov", None, min=0.0, max=8.0,
+                               value=[0.0, 8.0], step=0.1),
+               class_="sb-section"),
+        ui.div(ui.div("Height", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_height", None, min=60, max=90,
+                               value=[60, 90], step=1),
+               class_="sb-section"),
+        ui.div({"class": "sb-count"},
+               ui.span("Showing", class_="lbl"),
+               ui.output_text(f"{prefix}_filter_count")),
+    )
+
+def make_arch_plot_area(prefix, title):
+    return ui.div(
+        {"class": "plot-area"},
+        ui.div({"class": "plot-toolbar"},
+               ui.div(title, class_="plot-headline"),
+               ui.output_ui(f"{prefix}_plot_meta")),
+        ui.div({"class": "legend-bar"},
+               ui.output_ui(f"{prefix}_legend_ui")),
+        ui.div({"class": "scatter-wrap"},
+               output_widget(f"{prefix}_scatter")),
+    )
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # APP UI
@@ -479,6 +842,7 @@ app_ui = ui.page_fluid(
                 padding:0 28px; background:var(--bg);
                 border-bottom:1px solid var(--rule);
                 height:38px; flex-shrink:0;
+                overflow-x:auto; overflow-y:hidden; white-space:nowrap;
             }
             .tab-btn {
                 font-family:var(--sans); font-size:11px; font-weight:600;
@@ -486,12 +850,17 @@ app_ui = ui.page_fluid(
                 color:var(--ink-3); background:none; border:none;
                 border-bottom:2px solid transparent;
                 padding:0 14px; height:38px; cursor:pointer;
+                flex:0 0 auto;
                 transition:color .15s, border-color .15s;
             }
             .tab-btn:hover     { color:var(--ink-2); }
             .tab-btn.active-d1 { color:#4a9eed;       border-bottom-color:#4a9eed; }
             .tab-btn.active-d2 { color:var(--accent);  border-bottom-color:var(--accent); }
             .tab-btn.active-d3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
+            .tab-btn.active-a1 { color:#4a9eed;        border-bottom-color:#4a9eed; }
+            .tab-btn.active-a2 { color:#7cc47a;        border-bottom-color:#7cc47a; }
+            .tab-btn.active-a3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
+            .tab-btn.active-info { color:var(--ink);    border-bottom-color:var(--ink); }
             .tab-btn.active-wl { color:#7cc47a;         border-bottom-color:#7cc47a; }
             .tab-sep { width:1px; height:16px; background:var(--rule-2); margin:0 4px; }
 
@@ -549,6 +918,81 @@ app_ui = ui.page_fluid(
                 display:flex; justify-content:space-between; align-items:baseline;
                 margin-bottom:6px; gap:12px;
             }
+            .wl-radar-tools {
+                display:grid; grid-template-columns:minmax(170px, 1fr) minmax(170px, 1fr) minmax(240px, 1.25fr);
+                align-items:start; gap:14px; border-top:1px solid var(--rule);
+                padding-top:8px; margin-top:4px;
+            }
+            .wl-radar-picker {
+                display:contents;
+            }
+            .wl-radar-field .shiny-input-container {
+                margin:0; width:100%;
+            }
+            .wl-radar-field-title {
+                font-family:var(--sans); font-size:9px; font-weight:700;
+                letter-spacing:.14em; text-transform:uppercase;
+                color:var(--ink-3); margin-bottom:4px;
+            }
+            .wl-radar-field .selectize-input {
+                min-height:30px !important;
+                border:1px solid var(--rule-2) !important;
+                border-radius:0 !important;
+                background:var(--bg-2) !important;
+                color:var(--ink) !important;
+                box-shadow:none !important;
+                font-family:var(--mono) !important;
+                font-size:10px !important;
+                padding:4px 7px !important;
+            }
+            .wl-radar-field .selectize-input input {
+                color:var(--ink) !important;
+                font-family:var(--mono) !important; font-size:10px !important;
+            }
+            .wl-radar-field .selectize-input .item {
+                background:rgba(200,168,75,.16) !important;
+                border:1px solid rgba(200,168,75,.45) !important;
+                border-radius:2px !important;
+                color:#f4f7fb !important;
+                padding:1px 5px !important;
+                margin:1px 3px 1px 0 !important;
+            }
+            .wl-radar-field .selectize-dropdown {
+                background:var(--bg-2) !important;
+                border:1px solid var(--rule-2) !important;
+                color:var(--ink) !important;
+                font-family:var(--mono) !important;
+                font-size:10px !important;
+            }
+            .wl-radar-field .selectize-dropdown .active {
+                background:rgba(200,168,75,.18) !important;
+                color:#fff !important;
+            }
+            .wl-radar-stat-checks .shiny-options-group {
+                display:grid !important;
+                grid-template-columns:repeat(3, minmax(0, 1fr));
+                gap:4px 10px !important;
+            }
+            .wl-radar-stat-checks .shiny-input-container {
+                margin-top:8px;
+            }
+            .wl-radar-stat-checks .checkbox {
+                margin:0 !important;
+            }
+            .wl-radar-stat-checks .checkbox label {
+                display:flex !important; align-items:center !important;
+                gap:6px !important; margin:0 !important;
+                font-family:var(--mono) !important; font-size:10px !important;
+                color:var(--ink-2) !important; line-height:1.25;
+                cursor:pointer;
+            }
+            .wl-radar-stat-checks .checkbox input[type="checkbox"] {
+                margin:0 !important;
+                accent-color:var(--accent);
+            }
+            .wl-radar-stat-checks .checkbox:has(input:checked) label {
+                color:#f4f7fb !important;
+            }
             .wl-radar-title {
                 font-family:var(--sans); font-size:10px; font-weight:700;
                 letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3);
@@ -559,6 +1003,14 @@ app_ui = ui.page_fluid(
             .wl-radar {
                 height:320px;
                 min-height:260px;
+            }
+            .wl-radar .modebar {
+                display:none !important;
+            }
+            .wl-radar .main-svg,
+            .wl-radar .plot-container,
+            .wl-radar .svg-container {
+                background:transparent !important;
             }
             .wl-card {
                 background:var(--bg-2); border:1px solid var(--rule-2);
@@ -606,6 +1058,48 @@ app_ui = ui.page_fluid(
             }
             .tab-panel.active {
                 flex:1; height:auto; overflow:hidden;
+            }
+
+            /* ── Guide / documentation page ────────────────────── */
+            .doc-shell {
+                flex:1; overflow-y:auto; background:var(--bg);
+                padding:26px 28px 56px;
+            }
+            .doc-inner {
+                max-width:880px; margin:0 auto;
+                color:var(--ink-2); font-family:var(--sans);
+                line-height:1.62; font-size:14px;
+            }
+            .doc-inner h1 {
+                font-family:var(--serif); font-size:34px; line-height:1.05;
+                color:var(--ink); font-weight:600; margin:0 0 20px;
+                border-bottom:2px solid var(--ink); padding-bottom:12px;
+            }
+            .doc-inner h2 {
+                font-family:var(--serif); font-size:22px; color:var(--ink);
+                font-weight:600; margin:30px 0 10px;
+                border-top:1px solid var(--rule); padding-top:18px;
+            }
+            .doc-inner h3 {
+                font-family:var(--sans); font-size:12px; color:var(--ink);
+                font-weight:800; text-transform:uppercase; letter-spacing:.13em;
+                margin:22px 0 8px;
+            }
+            .doc-inner p { margin:0 0 12px; }
+            .doc-inner ul,
+            .doc-inner ol { margin:0 0 14px 22px; padding:0; }
+            .doc-inner li { margin:4px 0; padding-left:2px; }
+            .doc-inner strong { color:var(--ink); font-weight:700; }
+            .doc-inner code {
+                font-family:var(--mono); font-size:12px;
+                color:#f4f7fb; background:var(--bg-2);
+                border:1px solid var(--rule-2); padding:1px 5px;
+            }
+            .doc-inner blockquote {
+                border-left:3px solid var(--accent);
+                margin:14px 0; padding:8px 14px;
+                background:rgba(200,168,75,.08); color:var(--ink);
+                font-family:var(--serif); font-size:16px;
             }
 
             /* ── Body / sidebar / plot shared layout ─────────── */
@@ -703,7 +1197,7 @@ app_ui = ui.page_fluid(
                     p.classList.remove('active');
                 });
                 document.querySelectorAll('.tab-btn').forEach(function(b) {
-                    b.classList.remove('active-d1','active-d2','active-d3','active-wl');
+                    b.classList.remove('active-d1','active-d2','active-d3','active-a1','active-a2','active-a3','active-info','active-wl');
                 });
                 document.getElementById(tab+'-tab').classList.add('active');
                 document.getElementById('btn-'+tab).classList.add('active-'+tab);
@@ -753,6 +1247,18 @@ app_ui = ui.page_fluid(
                ui.tags.button("Division III", id="btn-d3", class_="tab-btn",
                               onclick="switchTab('d3')"),
                ui.div({"class": "tab-sep"}),
+               ui.tags.button("D-I Archetype Beta", id="btn-a1", class_="tab-btn",
+                              onclick="switchTab('a1')"),
+               ui.div({"class": "tab-sep"}),
+               ui.tags.button("D-II Archetype Beta", id="btn-a2", class_="tab-btn",
+                              onclick="switchTab('a2')"),
+               ui.div({"class": "tab-sep"}),
+               ui.tags.button("D-III Archetype Beta", id="btn-a3", class_="tab-btn",
+                              onclick="switchTab('a3')"),
+               ui.div({"class": "tab-sep"}),
+               ui.tags.button("Archetype Guide", id="btn-info", class_="tab-btn",
+                              onclick="switchTab('info')"),
+               ui.div({"class": "tab-sep"}),
                ui.tags.button(
                    ui.HTML('Watchlist <span id="wl-badge" class="wl-badge" style="display:none">0</span>'),
                    id="btn-wl", class_="tab-btn",
@@ -775,11 +1281,42 @@ app_ui = ui.page_fluid(
                           make_sidebar("d3", d3_df, d3_conferences),
                           make_plot_area("d3"))),
 
+            ui.div({"id": "a1-tab", "class": "tab-panel"},
+                   ui.div({"class": "body-grid"},
+                          make_arch_sidebar("a1", d1_df, d1_conferences),
+                          make_arch_plot_area("a1", "Division I Archetype Beta"))),
+
+            ui.div({"id": "a2-tab", "class": "tab-panel"},
+                   ui.div({"class": "body-grid"},
+                          make_arch_sidebar("a2", d2_df, d2_conferences),
+                          make_arch_plot_area("a2", "Division II Archetype Beta"))),
+
+            ui.div({"id": "a3-tab", "class": "tab-panel"},
+                   ui.div({"class": "body-grid"},
+                          make_arch_sidebar("a3", d3_df, d3_conferences),
+                          make_arch_plot_area("a3", "Division III Archetype Beta"))),
+
+            ui.div({"id": "info-tab", "class": "tab-panel"},
+                   make_explainer_page()),
+
             ui.div({"id": "wl-tab", "class": "tab-panel"},
                    ui.div({"class": "wl-shell"},
                           ui.div({"class": "wl-header"},
                                  ui.div("Watchlist", class_="wl-title"),
                                  ui.output_text("wl_count")),
+                          ui.div(
+                              {"class": "wl-radar-wrap"},
+                              ui.div(
+                                  {"class": "wl-radar-head"},
+                                  ui.div("Radar Comparison", class_="wl-radar-title"),
+                                  ui.div("percentile within each player's division", class_="wl-radar-note"),
+                              ),
+                              ui.div({"class": "wl-radar"}, output_widget("watchlist_radar")),
+                              ui.div(
+                                  {"class": "wl-radar-tools"},
+                                  ui.output_ui("wl_radar_picker"),
+                              ),
+                          ),
                           ui.output_ui("watchlist_ui"))),
         ),
     ),
@@ -802,12 +1339,30 @@ def server(input, output, session):
     d2_dim    = reactive.Value(set())
     d3_sel    = reactive.Value(None)
     d3_dim    = reactive.Value(set())
+    a1_dim    = reactive.Value(set())
+    a2_dim    = reactive.Value(set())
+    a3_dim    = reactive.Value(set())
     watchlist = reactive.Value(set())
+    radar_selected = reactive.Value([])
+    radar_stat_selected = reactive.Value(DEFAULT_RADAR_STAT_KEYS)
     modal_req = reactive.Value(None)
 
     d1_fig = go.FigureWidget()
     d2_fig = go.FigureWidget()
     d3_fig = go.FigureWidget()
+    a1_fig = go.FigureWidget()
+    a2_fig = go.FigureWidget()
+    a3_fig = go.FigureWidget()
+
+    def sync_radar_selection(player_ids):
+        available = [pid for pid, *_ in watchlist_rows(player_ids)]
+        selected = [pid for pid in radar_selected.get() if pid in available][:2]
+        for pid in available:
+            if len(selected) >= 2:
+                break
+            if pid not in selected:
+                selected.append(pid)
+        radar_selected.set(selected)
 
     # ── Watchlist toggle ──────────────────────────────────────────────────
     @reactive.effect
@@ -817,6 +1372,7 @@ def server(input, output, session):
         curr = set(watchlist.get())
         curr.discard(pid) if pid in curr else curr.add(pid)
         watchlist.set(curr)
+        sync_radar_selection(curr)
         import random
         modal_req.set((pid, random.random()))
 
@@ -828,6 +1384,15 @@ def server(input, output, session):
         for rv in (d1_dim, d2_dim, d3_dim):
             curr = set(rv.get())
             curr.discard(pos) if pos in curr else curr.add(pos)
+            rv.set(curr)
+
+    @reactive.effect
+    @reactive.event(input.toggle_arch_dim)
+    def _all_arch_dim():
+        arch = input.toggle_arch_dim()
+        for rv in (a1_dim, a2_dim, a3_dim):
+            curr = set(rv.get())
+            curr.discard(arch) if arch in curr else curr.add(arch)
             rv.set(curr)
 
     # ── Single modal opener — handles d1p / d2p / d3p prefixes ───────────
@@ -1185,6 +1750,198 @@ def server(input, output, session):
         return ui.div()
 
     # ═══════════════════════════════════════════════════════════════════════
+    # ARCHETYPE BETA DASHBOARDS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def arch_filtered(prefix, df):
+        d = df.copy()
+        q = (getattr(input, f"{prefix}_q")() or "").strip().lower()
+        if q:
+            d = d[d["name"].str.lower().str.contains(q, na=False)]
+        archs = list(getattr(input, f"{prefix}_archetypes")() or [])
+        if archs:
+            d = d[d["primary_archetype"].isin(archs)]
+        ps = list(getattr(input, f"{prefix}_positions")() or [])
+        if ps:
+            d = d[d["pos"].isin(ps)]
+        cs = list(getattr(input, f"{prefix}_classes")() or [])
+        if cs:
+            d = d[d["cls"].isin(cs)]
+        xs = list(getattr(input, f"{prefix}_confs")() or [])
+        if xs:
+            d = d[d["conf"].isin(xs)]
+        t = getattr(input, f"{prefix}_team")()
+        if t and t != "All teams":
+            d = d[d["team"] == t]
+        lo, hi = getattr(input, f"{prefix}_score")()
+        d = d[(d["primary_score"] >= lo) & (d["primary_score"] <= hi)]
+        lo, hi = getattr(input, f"{prefix}_tp_range")()
+        d = d[(d["tp"] >= lo) & (d["tp"] <= hi)]
+        lo, hi = getattr(input, f"{prefix}_three_share")()
+        d = d[(d["three_share"] >= lo) & (d["three_share"] <= hi)]
+        lo, hi = getattr(input, f"{prefix}_ast_tov")()
+        d = d[(d["ast_tov"] >= lo) & (d["ast_tov"] <= hi)]
+        lo, hi = getattr(input, f"{prefix}_height")()
+        d = d[(d["heightIn"] >= lo) & (d["heightIn"] <= hi)]
+        return d
+
+    @reactive.effect
+    @reactive.event(input.a1_clear_arch)
+    def _a1_clear_arch():
+        ui.update_checkbox_group("a1_archetypes", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a1_clear_pos)
+    def _a1_clear_pos():
+        ui.update_checkbox_group("a1_positions", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a1_clear_cls)
+    def _a1_clear_cls():
+        ui.update_checkbox_group("a1_classes", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a1_clear_conf)
+    def _a1_clear_conf():
+        ui.update_checkbox_group("a1_confs", selected=[])
+        ui.update_select("a1_team", selected="All teams")
+
+    @reactive.calc
+    def a1_filtered():
+        return arch_filtered("a1", d1_df)
+
+    @output
+    @render.text
+    def a1_filter_count():
+        return f"{len(a1_filtered())} / {D1_TOTAL}"
+
+    @output
+    @render.ui
+    def a1_legend_ui():
+        return ui.HTML(arch_legend_html(a1_dim.get()))
+
+    @output
+    @render.ui
+    def a1_plot_meta():
+        return ui.div("PC1 = size vs creator traits · PC2 = shooting / spacing", class_="plot-meta")
+
+    @render_widget
+    def a1_scatter():
+        return a1_fig
+
+    @reactive.effect
+    def _a1_sync():
+        with a1_fig.batch_update():
+            a1_fig.data = []
+            for t in build_arch_traces(a1_filtered(), a1_dim.get()):
+                a1_fig.add_trace(t)
+            a1_fig.update_layout(build_arch_layout(a1_filtered()))
+
+    @reactive.effect
+    @reactive.event(input.a2_clear_arch)
+    def _a2_clear_arch():
+        ui.update_checkbox_group("a2_archetypes", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a2_clear_pos)
+    def _a2_clear_pos():
+        ui.update_checkbox_group("a2_positions", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a2_clear_cls)
+    def _a2_clear_cls():
+        ui.update_checkbox_group("a2_classes", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a2_clear_conf)
+    def _a2_clear_conf():
+        ui.update_checkbox_group("a2_confs", selected=[])
+        ui.update_select("a2_team", selected="All teams")
+
+    @reactive.calc
+    def a2_filtered():
+        return arch_filtered("a2", d2_df)
+
+    @output
+    @render.text
+    def a2_filter_count():
+        return f"{len(a2_filtered())} / {D2_TOTAL}"
+
+    @output
+    @render.ui
+    def a2_legend_ui():
+        return ui.HTML(arch_legend_html(a2_dim.get()))
+
+    @output
+    @render.ui
+    def a2_plot_meta():
+        return ui.div("PC1 = size vs creator traits · PC2 = shooting / spacing", class_="plot-meta")
+
+    @render_widget
+    def a2_scatter():
+        return a2_fig
+
+    @reactive.effect
+    def _a2_sync():
+        with a2_fig.batch_update():
+            a2_fig.data = []
+            for t in build_arch_traces(a2_filtered(), a2_dim.get()):
+                a2_fig.add_trace(t)
+            a2_fig.update_layout(build_arch_layout(a2_filtered()))
+
+    @reactive.effect
+    @reactive.event(input.a3_clear_arch)
+    def _a3_clear_arch():
+        ui.update_checkbox_group("a3_archetypes", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a3_clear_pos)
+    def _a3_clear_pos():
+        ui.update_checkbox_group("a3_positions", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a3_clear_cls)
+    def _a3_clear_cls():
+        ui.update_checkbox_group("a3_classes", selected=[])
+
+    @reactive.effect
+    @reactive.event(input.a3_clear_conf)
+    def _a3_clear_conf():
+        ui.update_checkbox_group("a3_confs", selected=[])
+        ui.update_select("a3_team", selected="All teams")
+
+    @reactive.calc
+    def a3_filtered():
+        return arch_filtered("a3", d3_df)
+
+    @output
+    @render.text
+    def a3_filter_count():
+        return f"{len(a3_filtered())} / {D3_TOTAL}"
+
+    @output
+    @render.ui
+    def a3_legend_ui():
+        return ui.HTML(arch_legend_html(a3_dim.get()))
+
+    @output
+    @render.ui
+    def a3_plot_meta():
+        return ui.div("PC1 = size vs creator traits · PC2 = shooting / spacing", class_="plot-meta")
+
+    @render_widget
+    def a3_scatter():
+        return a3_fig
+
+    @reactive.effect
+    def _a3_sync():
+        with a3_fig.batch_update():
+            a3_fig.data = []
+            for t in build_arch_traces(a3_filtered(), a3_dim.get()):
+                a3_fig.add_trace(t)
+            a3_fig.update_layout(build_arch_layout(a3_filtered()))
+
+    # ═══════════════════════════════════════════════════════════════════════
     # WATCHLIST
     # ═══════════════════════════════════════════════════════════════════════
 
@@ -1193,6 +1950,96 @@ def server(input, output, session):
     def wl_count():
         n = len(watchlist.get())
         return f"{n} player{'s' if n != 1 else ''}"
+
+    def sync_radar_player_slots():
+        available = [pid for pid, *_ in watchlist_rows(watchlist.get())]
+        selected = []
+        for pid in (input.wl_radar_player_1(), input.wl_radar_player_2()):
+            if pid and pid in available and pid not in selected:
+                selected.append(pid)
+        radar_selected.set(selected[:2])
+
+    @reactive.effect
+    @reactive.event(input.wl_radar_player_1)
+    def _wl_radar_player_1_changed():
+        sync_radar_player_slots()
+
+    @reactive.effect
+    @reactive.event(input.wl_radar_player_2)
+    def _wl_radar_player_2_changed():
+        sync_radar_player_slots()
+
+    @reactive.effect
+    @reactive.event(input.wl_radar_stats)
+    def _wl_radar_stats_changed():
+        selected = [
+            key for key in list(input.wl_radar_stats() or [])
+            if key in RADAR_STAT_LOOKUP
+        ]
+        radar_stat_selected.set(selected)
+
+    @output
+    @render.ui
+    def wl_radar_picker():
+        rows = watchlist_rows(watchlist.get())
+        if not rows:
+            return ui.div({"class": "wl-radar-picker"})
+
+        selected = [pid for pid in radar_selected.get() if pid in {row[0] for row in rows}][:2]
+        player_choices = {
+            "": "Select player...",
+            **{
+                pid: f"{r['name']} · {div_}"
+                for pid, r, _df, div_ in rows
+            },
+        }
+        stat_selected = [
+            key for key in radar_stat_selected.get()
+            if key in RADAR_STAT_LOOKUP
+        ]
+        stat_choices = {
+            key: label
+            for key, label, _col, _short_label, _fmt in RADAR_STATS
+        }
+        return ui.div(
+            {"class": "wl-radar-picker"},
+            ui.div(
+                {"class": "wl-radar-field"},
+                ui.div("Player 1", class_="wl-radar-field-title"),
+                ui.input_selectize(
+                    "wl_radar_player_1",
+                    None,
+                    choices=player_choices,
+                    selected=selected[0] if len(selected) >= 1 else "",
+                    options={
+                        "placeholder": "Search player 1...",
+                    },
+                ),
+            ),
+            ui.div(
+                {"class": "wl-radar-field"},
+                ui.div("Player 2", class_="wl-radar-field-title"),
+                ui.input_selectize(
+                    "wl_radar_player_2",
+                    None,
+                    choices=player_choices,
+                    selected=selected[1] if len(selected) >= 2 else "",
+                    options={
+                        "placeholder": "Search player 2...",
+                    },
+                ),
+            ),
+            ui.div(
+                {"class": "wl-radar-field wl-radar-stat-checks"},
+                ui.div("Stats", class_="wl-radar-field-title"),
+                ui.input_checkbox_group(
+                    "wl_radar_stats",
+                    None,
+                    choices=stat_choices,
+                    selected=stat_selected,
+                ),
+            ),
+        )
 
     @output
     @render.ui
@@ -1252,21 +2099,14 @@ def server(input, output, session):
         js  = f"var b=document.getElementById('wl-badge');if(b){{b.textContent='{n}';b.style.display='{vis}';}}"
         return ui.div(
             ui.tags.script(js),
-            ui.div(
-                {"class": "wl-radar-wrap"},
-                ui.div(
-                    {"class": "wl-radar-head"},
-                    ui.div("Radar Comparison", class_="wl-radar-title"),
-                    ui.div("percentile within each player's division", class_="wl-radar-note"),
-                ),
-                ui.div({"class": "wl-radar"}, output_widget("watchlist_radar")),
-            ),
             ui.div({"class": "wl-grid"}, *cards))
 
     @output
     @render_widget
     def watchlist_radar():
-        return make_watchlist_radar(watchlist.get())
+        selected = [pid for pid in radar_selected.get() if pid in watchlist.get()][:2]
+        stats = [key for key in radar_stat_selected.get() if key in RADAR_STAT_LOOKUP]
+        return make_watchlist_radar(selected, stats)
 
 
 app = App(app_ui, server, static_assets=HERE / "www")

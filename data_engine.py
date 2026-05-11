@@ -247,6 +247,10 @@ def load_data(csv_path: str, id_prefix: str = "d2p") -> dict:
     df["efg"]          = n("eFG")
     df["three_share"]  = n("three_share")
     df["ast_tov"]      = n("AST_TOV")
+    df["assist_creation"] = n("ast_per_40")
+    df["assist_source"]   = "ast_per_40 proxy"
+    df["dreb_arch"]       = n("DRBPG")
+    df["dreb_source"]     = "DRBPG proxy"
     df["PC1"]          = n("PC1")
     df["PC2"]          = n("PC2")
     df["PC3"]          = n("PC3")
@@ -328,6 +332,10 @@ def load_d1_data(csv_path: str, id_prefix: str = "d1p") -> dict:
 
     # 3P share — already 0-1
     df["three_share"] = n("three_share")
+    df["assist_creation"] = n("AST_pct")
+    df["assist_source"]   = "AST_pct"
+    df["dreb_arch"]       = n("DRB_pct")
+    df["dreb_source"]     = "DRB_pct"
 
     # PCs — four components with different names in this dataset
     #   arch_PC1, arch_PC2, arch_PC3  →  PC1, PC2, PC3   (archetype / style)
