@@ -854,6 +854,7 @@ app_ui = ui.page_fluid(
                 transition:color .15s, border-color .15s;
             }
             .tab-btn:hover     { color:var(--ink-2); }
+            .feature-hidden { display:none !important; }
             .tab-btn.active-d1 { color:#4a9eed;       border-bottom-color:#4a9eed; }
             .tab-btn.active-d2 { color:var(--accent);  border-bottom-color:var(--accent); }
             .tab-btn.active-d3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
@@ -1246,17 +1247,17 @@ app_ui = ui.page_fluid(
                ui.div({"class": "tab-sep"}),
                ui.tags.button("Division III", id="btn-d3", class_="tab-btn",
                               onclick="switchTab('d3')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("D-I Archetype Beta", id="btn-a1", class_="tab-btn",
+               ui.div({"class": "tab-sep feature-hidden"}),
+               ui.tags.button("D-I Archetype Beta", id="btn-a1", class_="tab-btn feature-hidden",
                               onclick="switchTab('a1')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("D-II Archetype Beta", id="btn-a2", class_="tab-btn",
+               ui.div({"class": "tab-sep feature-hidden"}),
+               ui.tags.button("D-II Archetype Beta", id="btn-a2", class_="tab-btn feature-hidden",
                               onclick="switchTab('a2')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("D-III Archetype Beta", id="btn-a3", class_="tab-btn",
+               ui.div({"class": "tab-sep feature-hidden"}),
+               ui.tags.button("D-III Archetype Beta", id="btn-a3", class_="tab-btn feature-hidden",
                               onclick="switchTab('a3')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Archetype Guide", id="btn-info", class_="tab-btn",
+               ui.div({"class": "tab-sep feature-hidden"}),
+               ui.tags.button("Archetype Guide", id="btn-info", class_="tab-btn feature-hidden",
                               onclick="switchTab('info')"),
                ui.div({"class": "tab-sep"}),
                ui.tags.button(
@@ -1281,22 +1282,22 @@ app_ui = ui.page_fluid(
                           make_sidebar("d3", d3_df, d3_conferences),
                           make_plot_area("d3"))),
 
-            ui.div({"id": "a1-tab", "class": "tab-panel"},
+            ui.div({"id": "a1-tab", "class": "tab-panel feature-hidden"},
                    ui.div({"class": "body-grid"},
                           make_arch_sidebar("a1", d1_df, d1_conferences),
                           make_arch_plot_area("a1", "Division I Archetype Beta"))),
 
-            ui.div({"id": "a2-tab", "class": "tab-panel"},
+            ui.div({"id": "a2-tab", "class": "tab-panel feature-hidden"},
                    ui.div({"class": "body-grid"},
                           make_arch_sidebar("a2", d2_df, d2_conferences),
                           make_arch_plot_area("a2", "Division II Archetype Beta"))),
 
-            ui.div({"id": "a3-tab", "class": "tab-panel"},
+            ui.div({"id": "a3-tab", "class": "tab-panel feature-hidden"},
                    ui.div({"class": "body-grid"},
                           make_arch_sidebar("a3", d3_df, d3_conferences),
                           make_arch_plot_area("a3", "Division III Archetype Beta"))),
 
-            ui.div({"id": "info-tab", "class": "tab-panel"},
+            ui.div({"id": "info-tab", "class": "tab-panel feature-hidden"},
                    make_explainer_page()),
 
             ui.div({"id": "wl-tab", "class": "tab-panel"},
