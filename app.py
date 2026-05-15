@@ -1,4 +1,5 @@
 from shiny import App, ui, reactive, render
+import asttokens  # noqa: F401 - direct import lets Shinylive install this transitive dependency.
 from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 import pandas as pd
@@ -43,6 +44,11 @@ ARCHETYPE_COLOR = {
 }
 
 ARCHETYPE_ORDER = list(ARCHETYPE_COLOR)
+ARCHETYPE_SHORT_LABEL = {
+    "PG / Combo Guard": "PG / Combo",
+    "2-4 Interchangeable Wing": "2-4 Wing",
+    "5 / Stretch 4 / Big Wing": "F/C Stretch",
+}
 ARCHETYPE_PCA_FEATURES = [
     "pct_assist_creation",
     "pct_three_pct",
@@ -154,6 +160,10 @@ add_archetype_columns([
 ])
 
 
+def archetype_label(value):
+    return ARCHETYPE_SHORT_LABEL.get(value, value)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # SHARED UI HELPERS
 # ─────────────────────────────────────────────────────────────────────────
@@ -247,17 +257,26 @@ def make_explainer_page():
     try:
         content = md_path.read_text(encoding="utf-8")
     except OSError:
-        content = "# Archetype Beta Process Explainer\n\nThe explainer file could not be loaded."
+        content = "# Archetype Guide\n\nThe explainer file could not be loaded."
     return ui.div(
         {"class": "doc-shell"},
         ui.div({"class": "doc-inner"},
                ui.HTML(simple_markdown_to_html(content))))
 
 
-def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, watchlist):
+SIMILARITY_METRIC_LABELS = {
+    "mahalanobis": "Mahalanobis dist. over PC1-PC4",
+    "euclidean": "Euclidean dist. over PC1-PC4",
+}
+
+
+def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, watchlist,
+                      similarity_metric="mahalanobis"):
     row  = df[df["id"] == player_id].iloc[0]
-    sims = similar_to_fn(player_id, n_sim=5)
-    pc   = POS_COLOR.get(row["pos"], "#888")
+    if similarity_metric not in SIMILARITY_METRIC_LABELS:
+        similarity_metric = "mahalanobis"
+    sims = similar_to_fn(player_id, n_sim=5, metric=similarity_metric)
+    pc   = ARCHETYPE_COLOR.get(row["primary_archetype"], POS_COLOR.get(row["pos"], "#888"))
 
     if division_label == "D-I":
         sim_input = "d1_select_similar"
@@ -292,10 +311,35 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
         ("TS%", row["ts"],  league_avg["ts"],  0.75, lambda v: f"{v*100:.1f}%"),
     ]
     bars = [bar_row(l, pv, av, mx, fmt) for l, pv, av, mx, fmt in bar_defs]
+    archetype_scores = []
+    for score_col, arch in ARCHETYPE_LABELS.items():
+        score = float(row[score_col])
+        color = ARCHETYPE_COLOR[arch]
+        primary_cls = " primary" if arch == row["primary_archetype"] else ""
+        archetype_scores.append(
+            ui.div(
+                {"class": f"arch-score-row{primary_cls}"},
+                ui.div(
+                    ui.span(archetype_label(arch), class_="arch-score-name"),
+                    ui.span(f"{score:.0f}", class_="arch-score-value"),
+                    class_="arch-score-head",
+                ),
+                ui.div(
+                    {"class": "arch-score-track"},
+                    ui.div(
+                        {"class": "arch-score-fill",
+                         "style": f"width:{score:.1f}%;background:{color};"}
+                    ),
+                ),
+            )
+        )
 
     sim_rows = []
     for i, s in enumerate(sims):
-        sc = POS_COLOR.get(s["pos"], "#888")
+        sim_row = df[df["id"] == s["id"]]
+        sim_arch = sim_row.iloc[0]["primary_archetype"] if not sim_row.empty else None
+        sim_badge = archetype_label(sim_arch) if sim_arch else s["pos"]
+        sc = ARCHETYPE_COLOR.get(sim_arch, POS_COLOR.get(s["pos"], "#888"))
         sim_rows.append(
             ui.div(
                 {"class": "sim-row",
@@ -303,7 +347,7 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                 ui.div(f"{i+1:02d}", class_="sim-rank"),
                 ui.div(
                     ui.div(s["name"], class_="nm"),
-                    ui.div(ui.span(s["pos"], class_="pos-badge",
+                    ui.div(ui.span(sim_badge, class_="pos-badge",
                                    style=f"color:{sc};border-color:{sc}"),
                            ui.span(s["team"]),
                            ui.span(f"· {s['cls']}", style="color:var(--ink-3)"),
@@ -330,11 +374,16 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                       f"{row['team']} · {row['confName']}", class_="player-team"),
                ui.div({"class": "bio-grid"},
                       bio_item("Division", division_label),
-                      bio_item("Position", row["pos"]),
+                      bio_item("Archetype", archetype_label(row["primary_archetype"])),
                       bio_item("Class",    row["cls"]),
                       bio_item("Height",   height_str(int(row["heightIn"])), mono=True),
                       bio_item("Games",    str(int(row["gp"])), mono=True),
-                      bio_item("Min/G",    f"{row['mpg']:.1f}", mono=True))),
+                      bio_item("Min/G",    f"{row['mpg']:.1f}", mono=True)),
+               ui.div(
+                   ui.div("Archetype Scores", class_="col-title"),
+                   *archetype_scores,
+                   class_="arch-score-panel",
+               )),
         ui.div({"class": "detail-col"},
                ui.div("Season Statline ", ui.span("2025–26", class_="sub"),
                       class_="col-title"),
@@ -349,8 +398,21 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                       " = league mean.", class_="bar-note")),
         ui.div({"class": "detail-col"},
                ui.div("Most Similar Players ",
-                      ui.span("Euclidean dist. over PC1–PC4 (z-scored)", class_="sub"),
+                      ui.span(SIMILARITY_METRIC_LABELS[similarity_metric], class_="sub"),
                       class_="col-title"),
+               ui.div(
+                   ui.input_radio_buttons(
+                       "modal_similarity_metric",
+                       None,
+                       choices={
+                           "mahalanobis": "Mahalanobis",
+                           "euclidean": "Euclidean",
+                       },
+                       selected=similarity_metric,
+                       inline=True,
+                   ),
+                   class_="sim-metric-control",
+               ),
                *sim_rows))
 
     return ui.modal(body,
@@ -371,51 +433,34 @@ HOVER_TPL = (
 )
 
 def cdata(d):
-    return list(zip(d["name"], d["pos"], d["team"], d["cls"],
+    return list(zip(d["name"], d["primary_archetype"].map(archetype_label), d["team"], d["cls"],
                     d["ppg"],  d["rpg"], d["apg"],  d["id"]))
 
-ARCH_HOVER_TPL = (
-    "<b>%{customdata[0]}</b><br>"
-    "%{customdata[1]} · %{customdata[2]} · %{customdata[3]}<br>"
-    "%{customdata[4]} · %{customdata[5]:.0f} fit<br>"
-    "%{customdata[6]:.1%} 3P · %{customdata[7]:.1%} 3P rate · %{customdata[8]:.2f} A/TO<br>"
-    "%{customdata[9]:.0f} ast pctile · %{customdata[10]:.0f} dreb pctile"
-    "<extra></extra>"
-)
-
-def arch_cdata(d):
-    return list(zip(
-        d["name"], d["pos"], d["team"], d["cls"],
-        d["primary_archetype"], d["primary_score"],
-        d["tp"], d["three_share"], d["ast_tov"],
-        d["pct_assist_creation"], d["pct_dreb_pos_adj"], d["id"],
-    ))
-
-def build_traces(plot_df, selected_id, dimmed_pos, dot_size=9.5, dot_opacity=0.78):
+def build_traces(plot_df, selected_id, dimmed_arch, dot_size=9.5, dot_opacity=0.78):
     traces = []
-    for pos in POSITIONS:
-        sub  = plot_df[plot_df["pos"] == pos]
+    for arch in ARCHETYPE_ORDER:
+        sub  = plot_df[plot_df["primary_archetype"] == arch]
         if sub.empty: continue
-        alpha = 0.06 if pos in dimmed_pos else dot_opacity
+        alpha = 0.06 if arch in dimmed_arch else dot_opacity
         rest  = sub[sub["id"] != selected_id] if selected_id else sub
         sel   = sub[sub["id"] == selected_id] if selected_id else sub.iloc[0:0]
         if not rest.empty:
             traces.append(go.Scatter(
-                x=rest["PC1"], y=rest["PC2"], mode="markers",
-                marker=dict(size=dot_size, color=POS_COLOR[pos],
+                x=rest["arch_pca_PC1"], y=rest["arch_pca_PC2"], mode="markers",
+                marker=dict(size=dot_size, color=ARCHETYPE_COLOR[arch],
                             opacity=alpha, line=dict(width=0)),
                 customdata=cdata(rest), hovertemplate=HOVER_TPL,
-                name=POS_LABEL[pos], showlegend=False))
+                name=archetype_label(arch), showlegend=False))
         if not sel.empty:
             r = sel.iloc[0]
             traces.append(go.Scatter(
-                x=[r["PC1"]], y=[r["PC2"]], mode="markers",
+                x=[r["arch_pca_PC1"]], y=[r["arch_pca_PC2"]], mode="markers",
                 marker=dict(size=dot_size+16, color="rgba(0,0,0,0)",
                             line=dict(color="#c8a84b", width=1.5)),
                 hoverinfo="skip", showlegend=False))
             traces.append(go.Scatter(
-                x=[r["PC1"]], y=[r["PC2"]], mode="markers",
-                marker=dict(size=dot_size+4, color=POS_COLOR[pos],
+                x=[r["arch_pca_PC1"]], y=[r["arch_pca_PC2"]], mode="markers",
+                marker=dict(size=dot_size+4, color=ARCHETYPE_COLOR[arch],
                             opacity=1.0, line=dict(color="#0f1623", width=1.8)),
                 customdata=[cdata(sel)[0]], hovertemplate=HOVER_TPL,
                 showlegend=False))
@@ -430,86 +475,21 @@ def build_layout(_plot_df):
     return go.Layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0f1623",
         margin=dict(l=64, r=18, t=16, b=60),
-        xaxis=dict(title="← Component 1 →", title_font=tf, **axis),
-        yaxis=dict(title="← Component 2 →", title_font=tf, **axis),
+        xaxis=dict(title="PC1 · size ↔ creator guard traits", title_font=tf, **axis),
+        yaxis=dict(title="PC2 · shooting / spacing strength", title_font=tf, **axis),
         hoverlabel=dict(bgcolor="#1a2540", bordercolor="#c8a84b",
                         font=dict(family="JetBrains Mono, monospace",
                                   size=11.5, color="#c8d4e8")),
         hovermode="closest", dragmode="pan",
         font=dict(family="Inter, sans-serif"), clickmode="event")
 
-def build_arch_traces(plot_df, dimmed_arch, dot_size=9.5, dot_opacity=0.82):
-    traces = []
-    for arch in ARCHETYPE_ORDER:
-        sub = plot_df[plot_df["primary_archetype"] == arch]
-        if sub.empty:
-            continue
-        alpha = 0.08 if arch in dimmed_arch else dot_opacity
-        traces.append(go.Scatter(
-            x=sub["arch_pca_PC1"],
-            y=sub["arch_pca_PC2"],
-            mode="markers",
-            marker=dict(
-                size=dot_size,
-                color=ARCHETYPE_COLOR[arch],
-                opacity=alpha,
-                line=dict(width=0),
-            ),
-            customdata=arch_cdata(sub),
-            hovertemplate=ARCH_HOVER_TPL,
-            name=arch,
-            showlegend=False,
-        ))
-    return traces
-
-def build_arch_layout(_plot_df):
-    axis = dict(
-        gridcolor="rgba(0,0,0,0)",
-        zeroline=True,
-        zerolinecolor="#1e2d47",
-        zerolinewidth=1.2,
-        tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#4a6080"),
-        linecolor="#1e2d47",
-        linewidth=1,
-    )
-    tf = dict(size=10, family="JetBrains Mono, monospace", color="#4a6080")
-    return go.Layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#0f1623",
-        margin=dict(l=76, r=18, t=16, b=66),
-        xaxis=dict(title="PC1 · size ↔ creator guard traits", title_font=tf, **axis),
-        yaxis=dict(title="PC2 · shooting / spacing strength", title_font=tf, **axis),
-        hoverlabel=dict(
-            bgcolor="#1a2540",
-            bordercolor="#c8a84b",
-            font=dict(family="JetBrains Mono, monospace", size=11.5, color="#c8d4e8"),
-        ),
-        hovermode="closest",
-        dragmode="pan",
-        font=dict(family="Inter, sans-serif"),
-        clickmode="event",
-    )
-
-def arch_legend_html(dimmed_arch):
-    parts = []
-    for arch in ARCHETYPE_ORDER:
-        cls = "legend-item dim" if arch in dimmed_arch else "legend-item"
-        col = ARCHETYPE_COLOR[arch]
-        parts.append(
-            f'<div class="{cls}" onclick="Shiny.setInputValue(\'toggle_arch_dim\','
-            f'\'{arch}\',{{priority:\'event\'}})">'
-            f'<span class="swatch" style="background:{col}"></span>'
-            f'<span>{arch}</span></div>')
-    parts.append('<span class="legend-hint">beta archetype PCA</span>')
-    return "".join(parts)
-
 RADAR_STATS = [
-    ("scoring", "Scoring", "ppg", "PPG", "{:.1f}"),
-    ("rebounding", "Rebounding", "rpg", "RPG", "{:.1f}"),
-    ("playmaking", "Playmaking", "apg", "APG", "{:.1f}"),
-    ("takeaways", "Takeaways", "spg", "SPG", "{:.2f}"),
-    ("rim_defense", "Rim Defense", "bpg", "BPG", "{:.2f}"),
-    ("efficiency", "Efficiency", "ts", "TS%", "{:.1%}"),
+    ("ppg", "PPG", "ppg", "PPG", "{:.1f}"),
+    ("rpg", "RPG", "rpg", "RPG", "{:.1f}"),
+    ("apg", "APG", "apg", "APG", "{:.1f}"),
+    ("spg", "SPG", "spg", "SPG", "{:.2f}"),
+    ("bpg", "BPG", "bpg", "BPG", "{:.2f}"),
+    ("ts", "TS%", "ts", "TS%", "{:.1%}"),
 ]
 DEFAULT_RADAR_STAT_KEYS = [key for key, *_ in RADAR_STATS]
 RADAR_STAT_LOOKUP = {key: stat for key, *stat in RADAR_STATS}
@@ -638,16 +618,16 @@ def make_watchlist_radar(player_ids, stat_keys=None):
     )
     return fig
 
-def legend_html(dimmed_pos):
+def legend_html(dimmed_arch):
     parts = []
-    for pos in POSITIONS:
-        cls = "legend-item dim" if pos in dimmed_pos else "legend-item"
-        col = POS_COLOR[pos]
+    for arch in ARCHETYPE_ORDER:
+        cls = "legend-item dim" if arch in dimmed_arch else "legend-item"
+        col = ARCHETYPE_COLOR[arch]
         parts.append(
             f'<div class="{cls}" onclick="Shiny.setInputValue(\'toggle_dim\','
-            f'\'{pos}\',{{priority:\'event\'}})">'
+            f'\'{arch}\',{{priority:\'event\'}})">'
             f'<span class="swatch" style="background:{col}"></span>'
-            f'<span>{pos} · {POS_LABEL[pos]}</span></div>')
+            f'<span>{archetype_label(arch)}</span></div>')
     parts.append('<span class="legend-hint"></span>')
     return "".join(parts)
 
@@ -657,14 +637,27 @@ def legend_html(dimmed_pos):
 # ─────────────────────────────────────────────────────────────────────────
 
 def make_sidebar(prefix, df, conferences):
-    mpg_max = max(38,  int(df["mpg"].max())  + 2)
-    ppg_max = max(28,  int(df["ppg"].max())  + 2)
-    apg_max = max(9,   int(df["apg"].max())  + 1)
-    efg_max = round(max(0.80, float(df["efg"].max())), 2)
-    tp_max  = round(max(0.60, float(df["tp"].max())),  2)
-    ato_max = round(max(6.0,  float(df["ast_tov"].max())), 1)
-    h_min   = max(60, int(df["heightIn"].min()))
-    h_max   = max(87, int(df["heightIn"].max()))
+    def slider_range(col, step=1):
+        vals = pd.to_numeric(df[col], errors="coerce").dropna()
+        lo = float(np.floor(vals.min() / step) * step)
+        hi = float(np.ceil(vals.max() / step) * step)
+        if step >= 1:
+            return int(lo), int(hi)
+        decimals = len(str(step).split(".")[1].rstrip("0"))
+        return round(lo, decimals), round(hi, decimals)
+
+    mpg_min, mpg_max = slider_range("mpg", 0.1)
+    ppg_min, ppg_max = slider_range("ppg", 0.1)
+    efg_min, efg_max = slider_range("efg", 0.01)
+    tp_min, tp_max = slider_range("tp", 0.01)
+    three_share_min, three_share_max = slider_range("three_share", 0.01)
+    apg_min, apg_max = slider_range("apg", 0.1)
+    ato_min, ato_max = slider_range("ast_tov", 0.1)
+    rpg_min, rpg_max = slider_range("rpg", 0.1)
+    drb_min, drb_max = slider_range("drb", 0.1)
+    bpg_min, bpg_max = slider_range("bpg", 0.1)
+    spg_min, spg_max = slider_range("spg", 0.1)
+    h_min, h_max = slider_range("heightIn", 1)
     conf_choices = {c["conf"]: c["confName"]
                     for c in sorted(conferences, key=lambda x: x["confName"])}
 
@@ -673,6 +666,17 @@ def make_sidebar(prefix, df, conferences):
         ui.div("Filters", class_="sb-title"),
         ui.div(ui.div("Search by name", class_="sb-section-head"),
                ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
+               class_="sb-section"),
+        ui.div(ui.div(ui.span("Archetype"),
+                      ui.tags.button("clear", class_="clear-btn",
+                          onclick=f"Shiny.setInputValue('{prefix}_clear_arch',Math.random())"),
+                      class_="sb-section-head"),
+               ui.input_checkbox_group(f"{prefix}_archetypes", None,
+                                       choices={a: archetype_label(a) for a in ARCHETYPE_ORDER}),
+               class_="sb-section"),
+        ui.div(ui.div("Minimum archetype score", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_score_min", None, min=0, max=100,
+                               value=0, step=1),
                class_="sb-section"),
         ui.div(ui.div(ui.span("Position"),
                       ui.tags.button("clear", class_="clear-btn",
@@ -694,37 +698,61 @@ def make_sidebar(prefix, df, conferences):
                       class_="sb-section-head"),
                ui.input_checkbox_group(f"{prefix}_confs", None, choices=conf_choices),
                class_="sb-section"),
-        ui.div(ui.div("Team", class_="sb-section-head"),
-               ui.input_select(f"{prefix}_team", None,
-                   choices=["All teams"] + sorted(df["team"].unique().tolist())),
+        ui.div(ui.div(ui.span("Team"),
+                      ui.tags.button("clear", class_="clear-btn",
+                          onclick=f"Shiny.setInputValue('{prefix}_clear_team',Math.random())"),
+                      class_="sb-section-head"),
+               ui.input_selectize(
+                   f"{prefix}_team",
+                   None,
+                   choices=sorted(df["team"].unique().tolist()),
+                   multiple=True,
+                   options={"placeholder": "Search teams..."},
+               ),
                class_="sb-section"),
-        ui.div(ui.div("Minutes per game", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_mpg", None, min=10, max=mpg_max,
-                               value=[10, mpg_max], step=1, post=" min"),
+        ui.div(ui.div("MPG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_mpg", None, min=mpg_min, max=mpg_max,
+                               value=[mpg_min, mpg_max], step=0.1),
                class_="sb-section"),
-        ui.div(ui.div("Points per game", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_ppg_range", None, min=0, max=ppg_max,
-                               value=[0, ppg_max], step=1, post=" pts"),
+        ui.div(ui.div("PPG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_ppg_range", None, min=ppg_min, max=ppg_max,
+                               value=[ppg_min, ppg_max], step=0.1),
                class_="sb-section"),
         ui.div(ui.div("eFG%", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_efg", None, min=0.0, max=efg_max,
-                               value=[0.0, efg_max], step=0.01),
+               ui.input_slider(f"{prefix}_efg", None, min=efg_min, max=efg_max,
+                               value=[efg_min, efg_max], step=0.01),
                class_="sb-section"),
         ui.div(ui.div("3P%", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_tp_range", None, min=0.0, max=tp_max,
-                               value=[0.0, tp_max], step=0.01),
+               ui.input_slider(f"{prefix}_tp_range", None, min=tp_min, max=tp_max,
+                               value=[tp_min, tp_max], step=0.01),
                class_="sb-section"),
         ui.div(ui.div("3P Share", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_three_share", None, min=0.0, max=1.0,
-                               value=[0.0, 1.0], step=0.01),
+               ui.input_slider(f"{prefix}_three_share", None, min=three_share_min, max=three_share_max,
+                               value=[three_share_min, three_share_max], step=0.01),
                class_="sb-section"),
-        ui.div(ui.div("Assists per game", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_apg_range", None, min=0.0, max=float(apg_max),
-                               value=[0.0, float(apg_max)], step=0.1),
+        ui.div(ui.div("APG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_apg_range", None, min=apg_min, max=apg_max,
+                               value=[apg_min, apg_max], step=0.1),
                class_="sb-section"),
-        ui.div(ui.div("AST / TOV ratio", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_ast_tov", None, min=0.0, max=ato_max,
-                               value=[0.0, ato_max], step=0.1),
+        ui.div(ui.div("AST/TOV ratio", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_ast_tov", None, min=ato_min, max=ato_max,
+                               value=[ato_min, ato_max], step=0.1),
+               class_="sb-section"),
+        ui.div(ui.div("RPG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_rpg_range", None, min=rpg_min, max=rpg_max,
+                               value=[rpg_min, rpg_max], step=0.1),
+               class_="sb-section"),
+        ui.div(ui.div("DRPG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_drb_range", None, min=drb_min, max=drb_max,
+                               value=[drb_min, drb_max], step=0.1),
+               class_="sb-section"),
+        ui.div(ui.div("BPG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_bpg_range", None, min=bpg_min, max=bpg_max,
+                               value=[bpg_min, bpg_max], step=0.1),
+               class_="sb-section"),
+        ui.div(ui.div("SPG", class_="sb-section-head"),
+               ui.input_slider(f"{prefix}_spg_range", None, min=spg_min, max=spg_max,
+                               value=[spg_min, spg_max], step=0.1),
                class_="sb-section"),
         ui.div(ui.div("Height", class_="sb-section-head"),
                ui.input_slider(f"{prefix}_height", None, min=h_min, max=h_max,
@@ -747,84 +775,6 @@ def make_plot_area(prefix):
         ui.div({"class": "scatter-wrap"},
                output_widget(f"{prefix}_scatter")),
     )
-
-def make_arch_sidebar(prefix, df, conferences):
-    conf_choices = {c["conf"]: c["confName"]
-                    for c in sorted(conferences, key=lambda x: x["confName"])}
-    return ui.div(
-        {"class": "sidebar"},
-        ui.div("Beta Filters", class_="sb-title"),
-        ui.div(ui.div("Search by name", class_="sb-section-head"),
-               ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
-               class_="sb-section"),
-        ui.div(ui.div(ui.span("Archetype"),
-                      ui.tags.button("clear", class_="clear-btn",
-                          onclick=f"Shiny.setInputValue('{prefix}_clear_arch',Math.random())"),
-                      class_="sb-section-head"),
-               ui.input_checkbox_group(f"{prefix}_archetypes", None,
-                                       choices={a: a for a in ARCHETYPE_ORDER}),
-               class_="sb-section"),
-        ui.div(ui.div(ui.span("Position"),
-                      ui.tags.button("clear", class_="clear-btn",
-                          onclick=f"Shiny.setInputValue('{prefix}_clear_pos',Math.random())"),
-                      class_="sb-section-head"),
-               ui.input_checkbox_group(f"{prefix}_positions", None,
-                                       choices={p: p for p in POSITIONS}),
-               class_="sb-section"),
-        ui.div(ui.div(ui.span("Class"),
-                      ui.tags.button("clear", class_="clear-btn",
-                          onclick=f"Shiny.setInputValue('{prefix}_clear_cls',Math.random())"),
-                      class_="sb-section-head"),
-               ui.input_checkbox_group(f"{prefix}_classes", None,
-                                       choices={c: c for c in CLASSES}),
-               class_="sb-section"),
-        ui.div(ui.div(ui.span("Conference"),
-                      ui.tags.button("clear", class_="clear-btn",
-                          onclick=f"Shiny.setInputValue('{prefix}_clear_conf',Math.random())"),
-                      class_="sb-section-head"),
-               ui.input_checkbox_group(f"{prefix}_confs", None, choices=conf_choices),
-               class_="sb-section"),
-        ui.div(ui.div("Team", class_="sb-section-head"),
-               ui.input_select(f"{prefix}_team", None,
-                   choices=["All teams"] + sorted(df["team"].unique().tolist())),
-               class_="sb-section"),
-        ui.div(ui.div("Archetype score", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_score", None, min=0, max=100,
-                               value=[0, 100], step=1),
-               class_="sb-section"),
-        ui.div(ui.div("3P%", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_tp_range", None, min=0.0, max=0.75,
-                               value=[0.0, 0.75], step=0.01),
-               class_="sb-section"),
-        ui.div(ui.div("3P Share", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_three_share", None, min=0.0, max=1.0,
-                               value=[0.0, 1.0], step=0.01),
-               class_="sb-section"),
-        ui.div(ui.div("AST / TOV ratio", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_ast_tov", None, min=0.0, max=8.0,
-                               value=[0.0, 8.0], step=0.1),
-               class_="sb-section"),
-        ui.div(ui.div("Height", class_="sb-section-head"),
-               ui.input_slider(f"{prefix}_height", None, min=60, max=90,
-                               value=[60, 90], step=1),
-               class_="sb-section"),
-        ui.div({"class": "sb-count"},
-               ui.span("Showing", class_="lbl"),
-               ui.output_text(f"{prefix}_filter_count")),
-    )
-
-def make_arch_plot_area(prefix, title):
-    return ui.div(
-        {"class": "plot-area"},
-        ui.div({"class": "plot-toolbar"},
-               ui.div(title, class_="plot-headline"),
-               ui.output_ui(f"{prefix}_plot_meta")),
-        ui.div({"class": "legend-bar"},
-               ui.output_ui(f"{prefix}_legend_ui")),
-        ui.div({"class": "scatter-wrap"},
-               output_widget(f"{prefix}_scatter")),
-    )
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # APP UI
@@ -854,13 +804,9 @@ app_ui = ui.page_fluid(
                 transition:color .15s, border-color .15s;
             }
             .tab-btn:hover     { color:var(--ink-2); }
-            .feature-hidden { display:none !important; }
             .tab-btn.active-d1 { color:#4a9eed;       border-bottom-color:#4a9eed; }
             .tab-btn.active-d2 { color:var(--accent);  border-bottom-color:var(--accent); }
             .tab-btn.active-d3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
-            .tab-btn.active-a1 { color:#4a9eed;        border-bottom-color:#4a9eed; }
-            .tab-btn.active-a2 { color:#7cc47a;        border-bottom-color:#7cc47a; }
-            .tab-btn.active-a3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
             .tab-btn.active-info { color:var(--ink);    border-bottom-color:var(--ink); }
             .tab-btn.active-wl { color:#7cc47a;         border-bottom-color:#7cc47a; }
             .tab-sep { width:1px; height:16px; background:var(--rule-2); margin:0 4px; }
@@ -1133,6 +1079,26 @@ app_ui = ui.page_fluid(
                 font-family:var(--sans) !important; font-size:12.5px !important;
                 box-shadow:none !important; padding:6px 8px !important;
             }
+            .sidebar .selectize-input.items {
+                min-height:38px !important; display:flex !important;
+                flex-wrap:wrap !important; gap:4px !important; align-items:center !important;
+            }
+            .sidebar .selectize-input > .item {
+                background:var(--accent) !important; color:var(--bg) !important;
+                border:none !important; border-radius:2px !important;
+                padding:2px 7px !important; text-shadow:none !important;
+            }
+            .sidebar .selectize-input > input { color:var(--ink) !important; }
+            .sidebar .selectize-dropdown {
+                background:var(--bg) !important; border:1px solid var(--rule-2) !important;
+                color:var(--ink) !important;
+            }
+            .sidebar .selectize-dropdown .option {
+                color:var(--ink) !important; background:var(--bg) !important;
+            }
+            .sidebar .selectize-dropdown .active {
+                background:var(--bg-2) !important; color:var(--ink) !important;
+            }
             .sidebar .irs--shiny .irs-bar    { background:var(--accent) !important; border-top:none; border-bottom:none; }
             .sidebar .irs--shiny .irs-handle { background:var(--bg) !important; border:2px solid var(--accent) !important; border-radius:50% !important; }
             .sidebar .irs--shiny .irs-line   { background:var(--rule-2) !important; border:none; }
@@ -1198,7 +1164,7 @@ app_ui = ui.page_fluid(
                     p.classList.remove('active');
                 });
                 document.querySelectorAll('.tab-btn').forEach(function(b) {
-                    b.classList.remove('active-d1','active-d2','active-d3','active-a1','active-a2','active-a3','active-info','active-wl');
+                    b.classList.remove('active-d1','active-d2','active-d3','active-info','active-wl');
                 });
                 document.getElementById(tab+'-tab').classList.add('active');
                 document.getElementById('btn-'+tab).classList.add('active-'+tab);
@@ -1247,17 +1213,8 @@ app_ui = ui.page_fluid(
                ui.div({"class": "tab-sep"}),
                ui.tags.button("Division III", id="btn-d3", class_="tab-btn",
                               onclick="switchTab('d3')"),
-               ui.div({"class": "tab-sep feature-hidden"}),
-               ui.tags.button("D-I Archetype Beta", id="btn-a1", class_="tab-btn feature-hidden",
-                              onclick="switchTab('a1')"),
-               ui.div({"class": "tab-sep feature-hidden"}),
-               ui.tags.button("D-II Archetype Beta", id="btn-a2", class_="tab-btn feature-hidden",
-                              onclick="switchTab('a2')"),
-               ui.div({"class": "tab-sep feature-hidden"}),
-               ui.tags.button("D-III Archetype Beta", id="btn-a3", class_="tab-btn feature-hidden",
-                              onclick="switchTab('a3')"),
-               ui.div({"class": "tab-sep feature-hidden"}),
-               ui.tags.button("Archetype Guide", id="btn-info", class_="tab-btn feature-hidden",
+               ui.div({"class": "tab-sep"}),
+               ui.tags.button("Archetype Guide", id="btn-info", class_="tab-btn",
                               onclick="switchTab('info')"),
                ui.div({"class": "tab-sep"}),
                ui.tags.button(
@@ -1282,22 +1239,7 @@ app_ui = ui.page_fluid(
                           make_sidebar("d3", d3_df, d3_conferences),
                           make_plot_area("d3"))),
 
-            ui.div({"id": "a1-tab", "class": "tab-panel feature-hidden"},
-                   ui.div({"class": "body-grid"},
-                          make_arch_sidebar("a1", d1_df, d1_conferences),
-                          make_arch_plot_area("a1", "Division I Archetype Beta"))),
-
-            ui.div({"id": "a2-tab", "class": "tab-panel feature-hidden"},
-                   ui.div({"class": "body-grid"},
-                          make_arch_sidebar("a2", d2_df, d2_conferences),
-                          make_arch_plot_area("a2", "Division II Archetype Beta"))),
-
-            ui.div({"id": "a3-tab", "class": "tab-panel feature-hidden"},
-                   ui.div({"class": "body-grid"},
-                          make_arch_sidebar("a3", d3_df, d3_conferences),
-                          make_arch_plot_area("a3", "Division III Archetype Beta"))),
-
-            ui.div({"id": "info-tab", "class": "tab-panel feature-hidden"},
+            ui.div({"id": "info-tab", "class": "tab-panel"},
                    make_explainer_page()),
 
             ui.div({"id": "wl-tab", "class": "tab-panel"},
@@ -1340,20 +1282,16 @@ def server(input, output, session):
     d2_dim    = reactive.Value(set())
     d3_sel    = reactive.Value(None)
     d3_dim    = reactive.Value(set())
-    a1_dim    = reactive.Value(set())
-    a2_dim    = reactive.Value(set())
-    a3_dim    = reactive.Value(set())
     watchlist = reactive.Value(set())
     radar_selected = reactive.Value([])
     radar_stat_selected = reactive.Value(DEFAULT_RADAR_STAT_KEYS)
     modal_req = reactive.Value(None)
+    modal_player = reactive.Value(None)
+    modal_similarity_metric = reactive.Value("mahalanobis")
 
     d1_fig = go.FigureWidget()
     d2_fig = go.FigureWidget()
     d3_fig = go.FigureWidget()
-    a1_fig = go.FigureWidget()
-    a2_fig = go.FigureWidget()
-    a3_fig = go.FigureWidget()
 
     def sync_radar_selection(player_ids):
         available = [pid for pid, *_ in watchlist_rows(player_ids)]
@@ -1387,15 +1325,6 @@ def server(input, output, session):
             curr.discard(pos) if pos in curr else curr.add(pos)
             rv.set(curr)
 
-    @reactive.effect
-    @reactive.event(input.toggle_arch_dim)
-    def _all_arch_dim():
-        arch = input.toggle_arch_dim()
-        for rv in (a1_dim, a2_dim, a3_dim):
-            curr = set(rv.get())
-            curr.discard(arch) if arch in curr else curr.add(arch)
-            rv.set(curr)
-
     # ── Single modal opener — handles d1p / d2p / d3p prefixes ───────────
     @reactive.effect
     @reactive.event(modal_req)
@@ -1410,9 +1339,25 @@ def server(input, output, session):
             df_, la_, sf_, div_ = d3_df, d3_league_avg, d3_similar_to, "D-III"
         else:
             df_, la_, sf_, div_ = d2_df, d2_league_avg, d2_similar_to, "D-II"
+        metric_ = modal_similarity_metric.get()
         row = df_[df_["id"] == pid]
         if row.empty: return
-        ui.modal_show(make_detail_modal(pid, df_, la_, sf_, div_, wl))
+        modal_player.set(pid)
+        ui.modal_show(make_detail_modal(pid, df_, la_, sf_, div_, wl, metric_))
+
+    @reactive.effect
+    @reactive.event(input.modal_similarity_metric)
+    def _modal_similarity_metric_changed():
+        metric = input.modal_similarity_metric()
+        if metric not in SIMILARITY_METRIC_LABELS:
+            metric = "mahalanobis"
+        if metric == modal_similarity_metric.get():
+            return
+        modal_similarity_metric.set(metric)
+        pid = modal_player.get()
+        if pid:
+            import random
+            modal_req.set((pid, random.random()))
 
     # ── Open modal from watchlist card ────────────────────────────────────
     @reactive.effect
@@ -1433,6 +1378,11 @@ def server(input, output, session):
         ui.update_checkbox_group("d1_positions", selected=[])
 
     @reactive.effect
+    @reactive.event(input.d1_clear_arch)
+    def _d1_clear_arch():
+        ui.update_checkbox_group("d1_archetypes", selected=[])
+
+    @reactive.effect
     @reactive.event(input.d1_clear_cls)
     def _d1_clear_cls():
         ui.update_checkbox_group("d1_classes", selected=[])
@@ -1441,7 +1391,11 @@ def server(input, output, session):
     @reactive.event(input.d1_clear_conf)
     def _d1_clear_conf():
         ui.update_checkbox_group("d1_confs", selected=[])
-        ui.update_select("d1_team", selected="All teams")
+
+    @reactive.effect
+    @reactive.event(input.d1_clear_team)
+    def _d1_clear_team():
+        ui.update_selectize("d1_team", selected=[])
 
     @reactive.effect
     @reactive.event(input.d1_select_similar)
@@ -1458,20 +1412,27 @@ def server(input, output, session):
         d = d1_df.copy()
         q = (input.d1_q() or "").strip().lower()
         if q: d = d[d["name"].str.lower().str.contains(q, na=False)]
+        archs = list(input.d1_archetypes() or [])
+        if archs: d = d[d["primary_archetype"].isin(archs)]
+        d = d[d["primary_score"] >= input.d1_score_min()]
         ps = list(input.d1_positions() or [])
         if ps: d = d[d["pos"].isin(ps)]
         cs = list(input.d1_classes() or [])
         if cs: d = d[d["cls"].isin(cs)]
         xs = list(input.d1_confs() or [])
         if xs: d = d[d["conf"].isin(xs)]
-        t = input.d1_team()
-        if t and t != "All teams": d = d[d["team"] == t]
+        teams = list(input.d1_team() or [])
+        if teams: d = d[d["team"].isin(teams)]
         lo, hi = input.d1_mpg();         d = d[(d["mpg"]         >= lo) & (d["mpg"]         <= hi)]
         lo, hi = input.d1_ppg_range();   d = d[(d["ppg"]         >= lo) & (d["ppg"]         <= hi)]
+        lo, hi = input.d1_rpg_range();   d = d[(d["rpg"]         >= lo) & (d["rpg"]         <= hi)]
+        lo, hi = input.d1_drb_range();   d = d[(d["drb"]         >= lo) & (d["drb"]         <= hi)]
         lo, hi = input.d1_efg();         d = d[(d["efg"]         >= lo) & (d["efg"]         <= hi)]
         lo, hi = input.d1_tp_range();    d = d[(d["tp"]          >= lo) & (d["tp"]          <= hi)]
         lo, hi = input.d1_three_share(); d = d[(d["three_share"]  >= lo) & (d["three_share"]  <= hi)]
         lo, hi = input.d1_apg_range();   d = d[(d["apg"]         >= lo) & (d["apg"]         <= hi)]
+        lo, hi = input.d1_spg_range();   d = d[(d["spg"]         >= lo) & (d["spg"]         <= hi)]
+        lo, hi = input.d1_bpg_range();   d = d[(d["bpg"]         >= lo) & (d["bpg"]         <= hi)]
         lo, hi = input.d1_ast_tov();     d = d[(d["ast_tov"]     >= lo) & (d["ast_tov"]     <= hi)]
         lo, hi = input.d1_height();      d = d[(d["heightIn"]    >= lo) & (d["heightIn"]    <= hi)]
         return d
@@ -1542,6 +1503,11 @@ def server(input, output, session):
         ui.update_checkbox_group("d2_positions", selected=[])
 
     @reactive.effect
+    @reactive.event(input.d2_clear_arch)
+    def _d2_clear_arch():
+        ui.update_checkbox_group("d2_archetypes", selected=[])
+
+    @reactive.effect
     @reactive.event(input.d2_clear_cls)
     def _d2_clear_cls():
         ui.update_checkbox_group("d2_classes", selected=[])
@@ -1550,7 +1516,11 @@ def server(input, output, session):
     @reactive.event(input.d2_clear_conf)
     def _d2_clear_conf():
         ui.update_checkbox_group("d2_confs", selected=[])
-        ui.update_select("d2_team", selected="All teams")
+
+    @reactive.effect
+    @reactive.event(input.d2_clear_team)
+    def _d2_clear_team():
+        ui.update_selectize("d2_team", selected=[])
 
     @reactive.effect
     @reactive.event(input.d2_select_similar)
@@ -1567,20 +1537,27 @@ def server(input, output, session):
         d = d2_df.copy()
         q = (input.d2_q() or "").strip().lower()
         if q: d = d[d["name"].str.lower().str.contains(q, na=False)]
+        archs = list(input.d2_archetypes() or [])
+        if archs: d = d[d["primary_archetype"].isin(archs)]
+        d = d[d["primary_score"] >= input.d2_score_min()]
         ps = list(input.d2_positions() or [])
         if ps: d = d[d["pos"].isin(ps)]
         cs = list(input.d2_classes() or [])
         if cs: d = d[d["cls"].isin(cs)]
         xs = list(input.d2_confs() or [])
         if xs: d = d[d["conf"].isin(xs)]
-        t = input.d2_team()
-        if t and t != "All teams": d = d[d["team"] == t]
+        teams = list(input.d2_team() or [])
+        if teams: d = d[d["team"].isin(teams)]
         lo, hi = input.d2_mpg();         d = d[(d["mpg"]         >= lo) & (d["mpg"]         <= hi)]
         lo, hi = input.d2_ppg_range();   d = d[(d["ppg"]         >= lo) & (d["ppg"]         <= hi)]
+        lo, hi = input.d2_rpg_range();   d = d[(d["rpg"]         >= lo) & (d["rpg"]         <= hi)]
+        lo, hi = input.d2_drb_range();   d = d[(d["drb"]         >= lo) & (d["drb"]         <= hi)]
         lo, hi = input.d2_efg();         d = d[(d["efg"]         >= lo) & (d["efg"]         <= hi)]
         lo, hi = input.d2_tp_range();    d = d[(d["tp"]          >= lo) & (d["tp"]          <= hi)]
         lo, hi = input.d2_three_share(); d = d[(d["three_share"]  >= lo) & (d["three_share"]  <= hi)]
         lo, hi = input.d2_apg_range();   d = d[(d["apg"]         >= lo) & (d["apg"]         <= hi)]
+        lo, hi = input.d2_spg_range();   d = d[(d["spg"]         >= lo) & (d["spg"]         <= hi)]
+        lo, hi = input.d2_bpg_range();   d = d[(d["bpg"]         >= lo) & (d["bpg"]         <= hi)]
         lo, hi = input.d2_ast_tov();     d = d[(d["ast_tov"]     >= lo) & (d["ast_tov"]     <= hi)]
         lo, hi = input.d2_height();      d = d[(d["heightIn"]    >= lo) & (d["heightIn"]    <= hi)]
         return d
@@ -1651,6 +1628,11 @@ def server(input, output, session):
         ui.update_checkbox_group("d3_positions", selected=[])
 
     @reactive.effect
+    @reactive.event(input.d3_clear_arch)
+    def _d3_clear_arch():
+        ui.update_checkbox_group("d3_archetypes", selected=[])
+
+    @reactive.effect
     @reactive.event(input.d3_clear_cls)
     def _d3_clear_cls():
         ui.update_checkbox_group("d3_classes", selected=[])
@@ -1659,7 +1641,11 @@ def server(input, output, session):
     @reactive.event(input.d3_clear_conf)
     def _d3_clear_conf():
         ui.update_checkbox_group("d3_confs", selected=[])
-        ui.update_select("d3_team", selected="All teams")
+
+    @reactive.effect
+    @reactive.event(input.d3_clear_team)
+    def _d3_clear_team():
+        ui.update_selectize("d3_team", selected=[])
 
     @reactive.effect
     @reactive.event(input.d3_select_similar)
@@ -1676,20 +1662,27 @@ def server(input, output, session):
         d = d3_df.copy()
         q = (input.d3_q() or "").strip().lower()
         if q: d = d[d["name"].str.lower().str.contains(q, na=False)]
+        archs = list(input.d3_archetypes() or [])
+        if archs: d = d[d["primary_archetype"].isin(archs)]
+        d = d[d["primary_score"] >= input.d3_score_min()]
         ps = list(input.d3_positions() or [])
         if ps: d = d[d["pos"].isin(ps)]
         cs = list(input.d3_classes() or [])
         if cs: d = d[d["cls"].isin(cs)]
         xs = list(input.d3_confs() or [])
         if xs: d = d[d["conf"].isin(xs)]
-        t = input.d3_team()
-        if t and t != "All teams": d = d[d["team"] == t]
+        teams = list(input.d3_team() or [])
+        if teams: d = d[d["team"].isin(teams)]
         lo, hi = input.d3_mpg();         d = d[(d["mpg"]         >= lo) & (d["mpg"]         <= hi)]
         lo, hi = input.d3_ppg_range();   d = d[(d["ppg"]         >= lo) & (d["ppg"]         <= hi)]
+        lo, hi = input.d3_rpg_range();   d = d[(d["rpg"]         >= lo) & (d["rpg"]         <= hi)]
+        lo, hi = input.d3_drb_range();   d = d[(d["drb"]         >= lo) & (d["drb"]         <= hi)]
         lo, hi = input.d3_efg();         d = d[(d["efg"]         >= lo) & (d["efg"]         <= hi)]
         lo, hi = input.d3_tp_range();    d = d[(d["tp"]          >= lo) & (d["tp"]          <= hi)]
         lo, hi = input.d3_three_share(); d = d[(d["three_share"]  >= lo) & (d["three_share"]  <= hi)]
         lo, hi = input.d3_apg_range();   d = d[(d["apg"]         >= lo) & (d["apg"]         <= hi)]
+        lo, hi = input.d3_spg_range();   d = d[(d["spg"]         >= lo) & (d["spg"]         <= hi)]
+        lo, hi = input.d3_bpg_range();   d = d[(d["bpg"]         >= lo) & (d["bpg"]         <= hi)]
         lo, hi = input.d3_ast_tov();     d = d[(d["ast_tov"]     >= lo) & (d["ast_tov"]     <= hi)]
         lo, hi = input.d3_height();      d = d[(d["heightIn"]    >= lo) & (d["heightIn"]    <= hi)]
         return d
@@ -1749,198 +1742,6 @@ def server(input, output, session):
     @render.ui
     def d3_modal_trigger():
         return ui.div()
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # ARCHETYPE BETA DASHBOARDS
-    # ═══════════════════════════════════════════════════════════════════════
-
-    def arch_filtered(prefix, df):
-        d = df.copy()
-        q = (getattr(input, f"{prefix}_q")() or "").strip().lower()
-        if q:
-            d = d[d["name"].str.lower().str.contains(q, na=False)]
-        archs = list(getattr(input, f"{prefix}_archetypes")() or [])
-        if archs:
-            d = d[d["primary_archetype"].isin(archs)]
-        ps = list(getattr(input, f"{prefix}_positions")() or [])
-        if ps:
-            d = d[d["pos"].isin(ps)]
-        cs = list(getattr(input, f"{prefix}_classes")() or [])
-        if cs:
-            d = d[d["cls"].isin(cs)]
-        xs = list(getattr(input, f"{prefix}_confs")() or [])
-        if xs:
-            d = d[d["conf"].isin(xs)]
-        t = getattr(input, f"{prefix}_team")()
-        if t and t != "All teams":
-            d = d[d["team"] == t]
-        lo, hi = getattr(input, f"{prefix}_score")()
-        d = d[(d["primary_score"] >= lo) & (d["primary_score"] <= hi)]
-        lo, hi = getattr(input, f"{prefix}_tp_range")()
-        d = d[(d["tp"] >= lo) & (d["tp"] <= hi)]
-        lo, hi = getattr(input, f"{prefix}_three_share")()
-        d = d[(d["three_share"] >= lo) & (d["three_share"] <= hi)]
-        lo, hi = getattr(input, f"{prefix}_ast_tov")()
-        d = d[(d["ast_tov"] >= lo) & (d["ast_tov"] <= hi)]
-        lo, hi = getattr(input, f"{prefix}_height")()
-        d = d[(d["heightIn"] >= lo) & (d["heightIn"] <= hi)]
-        return d
-
-    @reactive.effect
-    @reactive.event(input.a1_clear_arch)
-    def _a1_clear_arch():
-        ui.update_checkbox_group("a1_archetypes", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a1_clear_pos)
-    def _a1_clear_pos():
-        ui.update_checkbox_group("a1_positions", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a1_clear_cls)
-    def _a1_clear_cls():
-        ui.update_checkbox_group("a1_classes", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a1_clear_conf)
-    def _a1_clear_conf():
-        ui.update_checkbox_group("a1_confs", selected=[])
-        ui.update_select("a1_team", selected="All teams")
-
-    @reactive.calc
-    def a1_filtered():
-        return arch_filtered("a1", d1_df)
-
-    @output
-    @render.text
-    def a1_filter_count():
-        return f"{len(a1_filtered())} / {D1_TOTAL}"
-
-    @output
-    @render.ui
-    def a1_legend_ui():
-        return ui.HTML(arch_legend_html(a1_dim.get()))
-
-    @output
-    @render.ui
-    def a1_plot_meta():
-        return ui.div("PC1 = size vs creator traits · PC2 = shooting / spacing", class_="plot-meta")
-
-    @render_widget
-    def a1_scatter():
-        return a1_fig
-
-    @reactive.effect
-    def _a1_sync():
-        with a1_fig.batch_update():
-            a1_fig.data = []
-            for t in build_arch_traces(a1_filtered(), a1_dim.get()):
-                a1_fig.add_trace(t)
-            a1_fig.update_layout(build_arch_layout(a1_filtered()))
-
-    @reactive.effect
-    @reactive.event(input.a2_clear_arch)
-    def _a2_clear_arch():
-        ui.update_checkbox_group("a2_archetypes", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a2_clear_pos)
-    def _a2_clear_pos():
-        ui.update_checkbox_group("a2_positions", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a2_clear_cls)
-    def _a2_clear_cls():
-        ui.update_checkbox_group("a2_classes", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a2_clear_conf)
-    def _a2_clear_conf():
-        ui.update_checkbox_group("a2_confs", selected=[])
-        ui.update_select("a2_team", selected="All teams")
-
-    @reactive.calc
-    def a2_filtered():
-        return arch_filtered("a2", d2_df)
-
-    @output
-    @render.text
-    def a2_filter_count():
-        return f"{len(a2_filtered())} / {D2_TOTAL}"
-
-    @output
-    @render.ui
-    def a2_legend_ui():
-        return ui.HTML(arch_legend_html(a2_dim.get()))
-
-    @output
-    @render.ui
-    def a2_plot_meta():
-        return ui.div("PC1 = size vs creator traits · PC2 = shooting / spacing", class_="plot-meta")
-
-    @render_widget
-    def a2_scatter():
-        return a2_fig
-
-    @reactive.effect
-    def _a2_sync():
-        with a2_fig.batch_update():
-            a2_fig.data = []
-            for t in build_arch_traces(a2_filtered(), a2_dim.get()):
-                a2_fig.add_trace(t)
-            a2_fig.update_layout(build_arch_layout(a2_filtered()))
-
-    @reactive.effect
-    @reactive.event(input.a3_clear_arch)
-    def _a3_clear_arch():
-        ui.update_checkbox_group("a3_archetypes", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a3_clear_pos)
-    def _a3_clear_pos():
-        ui.update_checkbox_group("a3_positions", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a3_clear_cls)
-    def _a3_clear_cls():
-        ui.update_checkbox_group("a3_classes", selected=[])
-
-    @reactive.effect
-    @reactive.event(input.a3_clear_conf)
-    def _a3_clear_conf():
-        ui.update_checkbox_group("a3_confs", selected=[])
-        ui.update_select("a3_team", selected="All teams")
-
-    @reactive.calc
-    def a3_filtered():
-        return arch_filtered("a3", d3_df)
-
-    @output
-    @render.text
-    def a3_filter_count():
-        return f"{len(a3_filtered())} / {D3_TOTAL}"
-
-    @output
-    @render.ui
-    def a3_legend_ui():
-        return ui.HTML(arch_legend_html(a3_dim.get()))
-
-    @output
-    @render.ui
-    def a3_plot_meta():
-        return ui.div("PC1 = size vs creator traits · PC2 = shooting / spacing", class_="plot-meta")
-
-    @render_widget
-    def a3_scatter():
-        return a3_fig
-
-    @reactive.effect
-    def _a3_sync():
-        with a3_fig.batch_update():
-            a3_fig.data = []
-            for t in build_arch_traces(a3_filtered(), a3_dim.get()):
-                a3_fig.add_trace(t)
-            a3_fig.update_layout(build_arch_layout(a3_filtered()))
 
     # ═══════════════════════════════════════════════════════════════════════
     # WATCHLIST
@@ -2067,7 +1868,7 @@ def server(input, output, session):
             if row_.empty:
                 continue
             r   = row_.iloc[0]
-            pc_ = POS_COLOR.get(r["pos"], "#888")
+            pc_ = ARCHETYPE_COLOR.get(r["primary_archetype"], POS_COLOR.get(r["pos"], "#888"))
             open_js = f"Shiny.setInputValue('wl_open_player','{pid}',{{priority:'event'}})"
             cards.append(
                 ui.div(
@@ -2079,7 +1880,7 @@ def server(input, output, session):
                         "★"),
                     ui.div(r["name"], class_="wl-card-name"),
                     ui.div(
-                        ui.span(r["pos"], class_="pos-badge",
+                        ui.span(archetype_label(r["primary_archetype"]), class_="pos-badge",
                                 style=f"color:{pc_};border-color:{pc_}"),
                         ui.span(r["team"]),
                         ui.span(f"· {r['cls']} · {div_}", style="color:var(--ink-3)"),

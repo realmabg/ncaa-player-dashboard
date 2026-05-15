@@ -129,7 +129,7 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     df = df[df["name"].str.len() > 0].copy().reset_index(drop=True)
     df["id"] = [id_prefix + str(i) for i in range(len(df))]
 
-    # ── Mahalanobis setup ────────────────────────────────────────
+    # ── Similarity setup ─────────────────────────────────────────
     PC_mat = df[SIM_KEYS].values.astype(float)
     cov    = np.cov(PC_mat, rowvar=False)
     # Regularise: add small diagonal to avoid singular matrix
@@ -164,15 +164,17 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     conferences = conf_df.to_dict("records")
 
     # similarity closure
-    def similar_to(player_id: str, n_sim: int = 5):
+    def similar_to(player_id: str, n_sim: int = 5, metric: str = "mahalanobis"):
         idx = df.index[df["id"] == player_id]
         if len(idx) == 0:
             return []
         i    = idx[0]
         vec  = PC_mat[i].reshape(1, -1)          # (1, 4)
 
-        # cdist with Mahalanobis returns shape (1, N)
-        dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
+        if metric == "euclidean":
+            dists = cdist(vec, PC_mat, metric="euclidean").flatten()
+        else:
+            dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
         dists[i] = np.inf
 
         sorted_idx = np.argsort(dists)

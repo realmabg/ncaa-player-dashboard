@@ -148,6 +148,37 @@ html, body {
   padding: 6px 8px !important;
 }
 #sidebar .form-control:focus { border-color: var(--ink) !important; }
+#sidebar .selectize-input.items {
+  min-height: 38px !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+  align-items: center !important;
+}
+#sidebar .selectize-input > .item {
+  background: var(--accent) !important;
+  color: var(--bg) !important;
+  border: none !important;
+  border-radius: 2px !important;
+  padding: 2px 7px !important;
+  text-shadow: none !important;
+}
+#sidebar .selectize-input > input {
+  color: var(--ink) !important;
+}
+#sidebar .selectize-dropdown {
+  background: var(--bg) !important;
+  border: 1px solid var(--rule-2) !important;
+  color: var(--ink) !important;
+}
+#sidebar .selectize-dropdown .option {
+  color: var(--ink) !important;
+  background: var(--bg) !important;
+}
+#sidebar .selectize-dropdown .active {
+  background: var(--bg-2) !important;
+  color: var(--ink) !important;
+}
 
 /* Checkbox groups — chip style (Position, Class) */
 #sidebar .shiny-input-container { margin-bottom: 0; }
@@ -389,6 +420,22 @@ html, body {
 .bio-item .v   { font-family: var(--serif); font-size: 14px; color: var(--ink); margin-top: 1px; }
 .bio-item .v.mono { font-family: var(--mono); font-size: 12px; }
 
+.arch-score-panel { margin-top: 18px; }
+.arch-score-row { margin-bottom: 9px; opacity: .74; }
+.arch-score-row.primary { opacity: 1; }
+.arch-score-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px; margin-bottom: 4px;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-2);
+}
+.arch-score-row.primary .arch-score-name { color: var(--ink); font-weight: 700; }
+.arch-score-value { color: var(--ink); font-weight: 700; }
+.arch-score-track {
+  height: 7px; background: var(--bg-2);
+  border-top: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule-2);
+}
+.arch-score-fill { height: 100%; min-width: 2px; }
+
 .col-title     { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; border-bottom: 1px solid var(--ink); padding-bottom: 5px; margin-bottom: 10px; }
 .col-title .sub { font-family: var(--serif); font-style: italic; text-transform: none; letter-spacing: 0; color: var(--ink-2); font-weight: 400; margin-left: 8px; font-size: 10.5px; }
 
@@ -409,6 +456,42 @@ html, body {
 
 .bar-note { margin-top: 8px; font-size: 10px; color: var(--ink-3); line-height: 1.5; }
 .bar-note b { color: var(--ink-2); }
+
+.sim-metric-control {
+  margin: -2px 0 10px;
+}
+.sim-metric-control .shiny-input-container {
+  margin: 0 !important;
+  width: 100% !important;
+}
+.sim-metric-control .shiny-options-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+.sim-metric-control .radio,
+.sim-metric-control .radio-inline {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.sim-metric-control label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.sim-metric-control input[type="radio"] {
+  position: static !important;
+  margin: 0 !important;
+  accent-color: var(--accent);
+}
 
 .sim-row {
   display: grid; grid-template-columns: 18px 1fr auto;
