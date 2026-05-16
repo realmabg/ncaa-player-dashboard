@@ -129,11 +129,9 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     df = df[df["name"].str.len() > 0].copy().reset_index(drop=True)
     df["id"] = [id_prefix + str(i) for i in range(len(df))]
 
-<<<<<<< HEAD
     # ── Similarity setup ─────────────────────────────────────────
-=======
-    # ── Mahalanobis setup ────────────────────────────────────────
->>>>>>> 7765501 (fixed TSpct)
+
+
     PC_mat = df[SIM_KEYS].values.astype(float)
     cov    = np.cov(PC_mat, rowvar=False)
     # Regularise: add small diagonal to avoid singular matrix
@@ -176,15 +174,12 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
         i    = idx[0]
         vec  = PC_mat[i].reshape(1, -1)          # (1, 4)
 
-<<<<<<< HEAD
+
         if metric == "euclidean":
             dists = cdist(vec, PC_mat, metric="euclidean").flatten()
         else:
             dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
-=======
-        # cdist with Mahalanobis returns shape (1, N)
-        dists = cdist(vec, PC_mat, metric="mahalanobis", VI=VI).flatten()
->>>>>>> 7765501 (fixed TSpct)
+
         dists[i] = np.inf
 
         sorted_idx = np.argsort(dists)
@@ -339,7 +334,7 @@ def load_d1_data(csv_path: str, id_prefix: str = "d1p") -> dict:
     df["ts"]  = n("TS_pct") / 100.0     # scaled 0-100 → 0-1
     df["efg"] = n("eFG") / 100.0        # 0-1 for slider
 
-    # Usage — 0-100 in D-I → /100 for consistency with D-II (both end up ~0.19 mean)
+    # Usage — 0-100 in D-I → /100 for consiwaistency with D-II (both end up ~0.19 mean)
     df["usg"] = n("usg") / 100.0
 
     # 3P share — already 0-1
