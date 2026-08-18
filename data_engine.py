@@ -401,8 +401,13 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
         return SIM_KEYS
 
     # league averages
-    avg_cols = ["ppg","rpg","apg","spg","bpg","tov","fg","tp","ft","ts","usg","mpg"]
-    league_avg = {c: float(df[c].mean()) for c in avg_cols}
+    avg_cols = ["ppg","rpg","apg","spg","bpg","tov","fg","tp","ft","ts","usg","mpg","assisted_fg_pct"]
+    league_avg = {}
+    for c in avg_cols:
+        if c in df.columns:
+            league_avg[c] = float(pd.to_numeric(df[c], errors="coerce").fillna(0).mean())
+        else:
+            league_avg[c] = 0.0
 
     # conference table
     conf_df = (
@@ -659,6 +664,53 @@ def load_d1_data(
 
     df["bpm"] = n("bpm")
     df["porpag"] = n("PORPAG")
+
+    # Low-sample flag for default D-I filtering and player detail warnings.
+    df["low_sample_size"] = (df["mpg"] < 10) | (df["gp"] < 5)
+
+    # Zone-level raw shooting shares and percentages from the D-I source.
+    df["rim_share"] = n("rim_share")
+    df["mid_share"] = n("mid_share")
+    df["rim_fg_pct"] = n("rim_pct")
+    df["mid_fg_pct"] = n("mid_pct")
+
+    # PBP zone counts.
+    df["pbp_rim_made"] = n("pbp_rim_made")
+    df["pbp_rim_missed"] = n("pbp_rim_missed")
+    df["pbp_rim_assisted"] = n("pbp_rim_assisted")
+    df["pbp_mid_made"] = n("pbp_mid_made")
+    df["pbp_mid_missed"] = n("pbp_mid_missed")
+    df["pbp_mid_assisted"] = n("pbp_mid_assisted")
+    df["pbp_three_made"] = n("pbp_three_made")
+    df["pbp_three_missed"] = n("pbp_three_missed")
+    df["pbp_three_assisted"] = n("pbp_three_assisted")
+    df["pbp_dunk_made"] = n("pbp_dunk_made")
+    df["pbp_dunk_missed"] = n("pbp_dunk_missed")
+    df["pbp_dunk_assisted"] = n("pbp_dunk_assisted")
+
+    # Treat dunks as part of the rim bucket for assisted-rate summaries.
+    df["rim_made_total"] = df["pbp_rim_made"] + df["pbp_dunk_made"]
+    df["rim_missed_total"] = df["pbp_rim_missed"] + df["pbp_dunk_missed"]
+    df["rim_assisted_total"] = df["pbp_rim_assisted"] + df["pbp_dunk_assisted"]
+    df["rim_attempts_total"] = df["rim_made_total"] + df["rim_missed_total"]
+    df["mid_attempts_total"] = df["pbp_mid_made"] + df["pbp_mid_missed"]
+    df["three_attempts_total"] = df["pbp_three_made"] + df["pbp_three_missed"]
+
+    total_fg_makes = df["rim_made_total"] + df["pbp_mid_made"] + df["pbp_three_made"]
+    total_assisted_fg_makes = df["rim_assisted_total"] + df["pbp_mid_assisted"] + df["pbp_three_assisted"]
+    df["assisted_fg_pct"] = (
+        total_assisted_fg_makes / total_fg_makes.replace(0, np.nan)
+    ).fillna(0).clip(0, 1)
+    df["rim_assisted_pct"] = (
+        df["rim_assisted_total"] / df["rim_made_total"].replace(0, np.nan)
+    ).fillna(0).clip(0, 1)
+    df["mid_assisted_pct"] = (
+        df["pbp_mid_assisted"] / df["pbp_mid_made"].replace(0, np.nan)
+    ).fillna(0).clip(0, 1)
+    df["three_assisted_pct"] = (
+        df["pbp_three_assisted"] / df["pbp_three_made"].replace(0, np.nan)
+    ).fillna(0).clip(0, 1)
+
     for col, values in _load_transfer_tags(transfer_path, raw).items():
         df[col] = values
     for col, values in _load_recruiting_tags(recruiting_path, raw).items():

@@ -24,6 +24,11 @@ D2_SCHEMA_RELATIVE_PATH = (
     / "current_d2_all_players_10mpg_dashboard_schema.csv"
 )
 LEGACY_D2_PATH = HERE / "d2_data_cleaned.csv"
+CORE_V3_TRANSFER_RELATIVE_PATH = (
+    Path("core_v3_dashboard_transfer_2026-08-18 copy")
+    / "model"
+    / "memberships.csv"
+)
 
 
 def resolve_current_d2_schema_path():
@@ -35,13 +40,21 @@ def resolve_current_d2_schema_path():
             return candidate
     return LEGACY_D2_PATH
 
+
+def resolve_core_v3_memberships_path():
+    for base in (HERE, *HERE.parents):
+        candidate = base / CORE_V3_TRANSFER_RELATIVE_PATH
+        if candidate.exists():
+            return candidate
+    return None
+
 D2 = load_data(
     str(resolve_current_d2_schema_path()),
     id_prefix="d2p",
     min_mpg=10,
 )
 D1 = load_d1_data(
-    str(HERE / "mbb_with_pca.csv"),
+    str(HERE / "mbb_with_pca_all_players_2026_with_pbp.csv"),
     id_prefix="d1p",
     transfer_path=str(HERE / "transfer_portal_cache.csv"),
     recruiting_path=str(HERE / "recruiting_rankings_cache.csv"),
@@ -78,6 +91,17 @@ ARCHETYPE_SHORT_LABEL = {
     "2-4 Interchangeable Wing": "2-4 Wing",
     "5 / Stretch 4 / Big Wing": "F/C Stretch",
 }
+ARCHETYPE_V2_LABELS = {
+    "A0": "Perimeter Spacer",
+    "A1": "Connecting Guard",
+    "A2": "Low-Production Player",
+    "A3": "Two-Way Guard",
+    "A4": "Scoring Playmaker",
+    "A5": "Efficient Play Finisher",
+    "A6": "Two-Way Forward",
+    "A7": "Traditional Big",
+}
+ARCHETYPE_V2_ORDER = list(ARCHETYPE_V2_LABELS)
 QUALIFICATION_FILTERS = {
     "none": "None",
     "general": "General Player",
@@ -178,6 +202,180 @@ ARCHETYPE_PCA_FEATURES = [
     "blk_per_40",
     "heightIn",
 ]
+
+
+def normalize_lookup_key(value):
+    return str(value or "").strip().lower()
+
+
+def add_archetype_v2_columns(df):
+    memberships_path = resolve_core_v3_memberships_path()
+    target_columns = [
+        *ARCHETYPE_V2_ORDER,
+        "archetype_v2_primary_code",
+        "archetype_v2_primary_label",
+        "archetype_v2_primary_weight",
+        "archetype_v2_secondary_code",
+        "archetype_v2_secondary_label",
+        "archetype_v2_secondary_weight",
+        "archetype_v2_available",
+    ]
+
+    if memberships_path is None:
+        for col in ARCHETYPE_V2_ORDER:
+            df[col] = np.nan
+        df["archetype_v2_primary_code"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_primary_label"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_primary_weight"] = pd.Series(np.nan, index=df.index, dtype="float64")
+        df["archetype_v2_secondary_code"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_secondary_label"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_secondary_weight"] = pd.Series(np.nan, index=df.index, dtype="float64")
+        df["archetype_v2_available"] = pd.Series(False, index=df.index, dtype="bool")
+        return
+
+    memberships = pd.read_csv(memberships_path)
+    memberships["name_key"] = memberships["playerName"].map(normalize_lookup_key)
+    memberships["team_key"] = memberships["teamName"].map(normalize_lookup_key)
+    memberships["minutes"] = pd.to_numeric(memberships["minutes"], errors="coerce").fillna(0)
+    memberships = memberships.sort_values("minutes", ascending=False)
+    memberships = memberships.drop_duplicates(["name_key", "team_key"], keep="first").copy()
+
+    weight_frame = memberships[ARCHETYPE_V2_ORDER].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    memberships["archetype_v2_primary_code"] = weight_frame.idxmax(axis=1)
+    memberships["archetype_v2_primary_weight"] = weight_frame.max(axis=1)
+
+    def secondary_code(row):
+        ordered = row.sort_values(ascending=False)
+        return ordered.index[1] if len(ordered.index) > 1 else ordered.index[0]
+
+    memberships["archetype_v2_secondary_code"] = weight_frame.apply(secondary_code, axis=1)
+    memberships["archetype_v2_secondary_weight"] = [
+        float(weight_frame.loc[idx, code])
+        for idx, code in zip(weight_frame.index, memberships["archetype_v2_secondary_code"])
+    ]
+    memberships["archetype_v2_primary_label"] = memberships["archetype_v2_primary_code"].map(ARCHETYPE_V2_LABELS)
+    memberships["archetype_v2_secondary_label"] = memberships["archetype_v2_secondary_code"].map(ARCHETYPE_V2_LABELS)
+    memberships["archetype_v2_available"] = memberships["archetype_v2_primary_code"].notna()
+
+    merge_cols = [
+        "name_key",
+        "team_key",
+        *target_columns,
+    ]
+    memberships = memberships[merge_cols]
+
+    lookup_df = df[["name", "team"]].copy()
+    lookup_df["name_key"] = lookup_df["name"].map(normalize_lookup_key)
+    lookup_df["team_key"] = lookup_df["team"].map(normalize_lookup_key)
+    merged = lookup_df.merge(memberships, on=["name_key", "team_key"], how="left")
+
+    for col in ARCHETYPE_V2_ORDER:
+        df[col] = pd.to_numeric(merged[col], errors="coerce")
+    df["archetype_v2_primary_code"] = merged["archetype_v2_primary_code"]
+    df["archetype_v2_primary_label"] = merged["archetype_v2_primary_label"]
+    df["archetype_v2_primary_weight"] = pd.to_numeric(merged["archetype_v2_primary_weight"], errors="coerce")
+    df["archetype_v2_secondary_code"] = merged["archetype_v2_secondary_code"]
+    df["archetype_v2_secondary_label"] = merged["archetype_v2_secondary_label"]
+    df["archetype_v2_secondary_weight"] = pd.to_numeric(merged["archetype_v2_secondary_weight"], errors="coerce")
+    df["archetype_v2_available"] = merged["archetype_v2_available"].fillna(False).astype(bool)
+
+
+def archetype_v2_label(value):
+    return ARCHETYPE_V2_LABELS.get(value, value)
+
+
+def format_weight_pct(value):
+    value = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return "N/A"
+    return f"{value * 100:.1f}%"
+
+
+def pct_display(value):
+    value = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return "N/A"
+    return f"{value * 100:.1f}%"
+
+
+def make_shot_profile_pie_html(row, player_id):
+    made_counts = [
+        float(pd.to_numeric(pd.Series([row.get("rim_made_total", 0)]), errors="coerce").iloc[0] or 0),
+        float(pd.to_numeric(pd.Series([row.get("pbp_three_made", 0)]), errors="coerce").iloc[0] or 0),
+        float(pd.to_numeric(pd.Series([row.get("pbp_mid_made", 0)]), errors="coerce").iloc[0] or 0),
+    ]
+    total_makes = sum(made_counts)
+    if total_makes <= 0:
+        return ui.div("No shot profile available.", class_="qual-note")
+
+    shares = [max(0.0, v / total_makes) for v in made_counts]
+
+    fg_pcts = [
+        float(pd.to_numeric(pd.Series([row.get("rim_fg_pct", 0)]), errors="coerce").iloc[0] or 0),
+        float(pd.to_numeric(pd.Series([row.get("tp", 0)]), errors="coerce").iloc[0] or 0),
+        float(pd.to_numeric(pd.Series([row.get("mid_fg_pct", 0)]), errors="coerce").iloc[0] or 0),
+    ]
+    assisted_pcts = [
+        float(pd.to_numeric(pd.Series([row.get("rim_assisted_pct", 0)]), errors="coerce").iloc[0] or 0),
+        float(pd.to_numeric(pd.Series([row.get("three_assisted_pct", 0)]), errors="coerce").iloc[0] or 0),
+        float(pd.to_numeric(pd.Series([row.get("mid_assisted_pct", 0)]), errors="coerce").iloc[0] or 0),
+    ]
+    labels = ["RIM", "3PT", "MID"]
+    hover_text = [
+        (
+            f"{label}<br>"
+            f"{share * 100:.1f}% of FGM<br>"
+            f"{fg * 100:.1f}% FG · {ast * 100:.1f}% assisted"
+        )
+        for label, share, fg, ast in zip(labels, shares, fg_pcts, assisted_pcts)
+    ]
+    # Center the rim slice at the top, then place 3PT on the lower right and MID on the lower left.
+    rotation = 90 + shares[0] * 180
+    fig = go.Figure(
+        go.Pie(
+            labels=labels,
+            values=shares,
+            sort=False,
+            direction="clockwise",
+            rotation=rotation,
+            textinfo="label",
+            textposition="auto",
+            textfont=dict(size=14, color="#ffffff", family="Inter, sans-serif"),
+            marker=dict(
+                colors=["#d7a538", "#ca9732", "#c18d29"],
+                line=dict(color="#f4ead4", width=2),
+            ),
+            hovertext=hover_text,
+            hovertemplate="%{hovertext}<extra></extra>",
+            showlegend=False,
+            hole=0,
+        )
+    )
+    fig.update_layout(
+        margin=dict(l=8, r=8, t=8, b=8),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        width=220,
+        height=220,
+        hoverlabel=dict(
+            bgcolor="#c89a33",
+            bordercolor="#f4ead4",
+            font=dict(family="Inter, sans-serif", size=10, color="#24324a"),
+            align="left",
+        ),
+        font=dict(color="#dbe6f4"),
+    )
+    return ui.HTML(
+        fig.to_html(
+            full_html=False,
+            include_plotlyjs=False,
+            config={"displayModeBar": False, "responsive": True},
+            div_id=f"shot-profile-{re.sub(r'[^a-zA-Z0-9_-]+', '-', str(player_id))}",
+        )
+    )
+
+
+add_archetype_v2_columns(d1_df)
 
 
 def add_archetype_columns(dfs):
@@ -578,6 +776,18 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
     star_icon  = "\u2605" if starred else "\u2606"
     star_label = "Remove from watchlist" if starred else "Add to watchlist"
     star_style = "color:var(--accent);" if starred else "color:var(--ink-3);"
+    is_low_sample = bool(row.get("low_sample_size", False))
+
+    rim_assisted_pct = pd.to_numeric(pd.Series([row.get("rim_assisted_pct", np.nan)]), errors="coerce").iloc[0]
+    mid_assisted_pct = pd.to_numeric(pd.Series([row.get("mid_assisted_pct", np.nan)]), errors="coerce").iloc[0]
+    three_assisted_pct = pd.to_numeric(pd.Series([row.get("three_assisted_pct", np.nan)]), errors="coerce").iloc[0]
+    rim_made_total = pd.to_numeric(pd.Series([row.get("rim_made_total", np.nan)]), errors="coerce").iloc[0]
+    mid_made_total = pd.to_numeric(pd.Series([row.get("pbp_mid_made", np.nan)]), errors="coerce").iloc[0]
+    three_made_total = pd.to_numeric(pd.Series([row.get("pbp_three_made", np.nan)]), errors="coerce").iloc[0]
+    total_made = rim_made_total + mid_made_total + three_made_total
+    rim_fgm_share = (rim_made_total / total_made) if total_made else 0.0
+    mid_fgm_share = (mid_made_total / total_made) if total_made else 0.0
+    three_fgm_share = (three_made_total / total_made) if total_made else 0.0
 
     statline = [
         stat_box("MIN", f"{row['mpg']:.1f}", league_avg["mpg"]),
@@ -637,7 +847,32 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
         ui.div(ui.tags.b(f"{label}: "), str(note), class_="qual-note")
         for label, note in qualification_notes
     ]
+    archetype_v2_scores = []
+    if division_label == "D-I" and bool(row.get("archetype_v2_available", False)):
+        for code in ARCHETYPE_V2_ORDER:
+            score = pd.to_numeric(pd.Series([row.get(code, np.nan)]), errors="coerce").iloc[0]
+            if pd.isna(score):
+                continue
+            archetype_v2_scores.append(
+                ui.div(
+                    {"class": "arch-score-row"},
+                    ui.div(
+                        ui.span(archetype_v2_label(code), class_="arch-score-name"),
+                        ui.span(f"{score * 100:.1f}%", class_="arch-score-value"),
+                        class_="arch-score-head",
+                    ),
+                    ui.div(
+                        {"class": "arch-score-track"},
+                        ui.div(
+                            {"class": "arch-score-fill",
+                             "style": f"width:{score * 100:.1f}%;background:#2f855a;"}
+                        ),
+                    ),
+                )
+            )
     player_tags = []
+    if is_low_sample:
+        player_tags.append("Low sample size")
     if bool(row.get("transfer_available", False)):
         transfer_from = row.get("transfer_from") or row["team"]
         player_tags.append(f"Available transfer from {transfer_from}")
@@ -645,8 +880,29 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
     if recruiting_summary:
         player_tags.extend(recruiting_summary.split("; "))
     player_tag_ui = [
-        ui.span(tag, class_="pos-badge", style="color:var(--accent);border-color:var(--accent)")
+        ui.span(
+            tag,
+            class_="sample-badge" if tag == "Low sample size" else "pos-badge",
+            style=""
+            if tag == "Low sample size"
+            else "color:var(--accent);border-color:var(--accent)",
+        )
         for tag in player_tags
+    ]
+
+    shot_profile_summary = [
+        ("Rim Assisted", rim_assisted_pct, f"{pct_display(rim_fgm_share)} of FGM"),
+        ("Mid Assisted", mid_assisted_pct, f"{pct_display(mid_fgm_share)} of FGM"),
+        ("3PT Assisted", three_assisted_pct, f"{pct_display(three_fgm_share)} of FGM"),
+    ]
+    shot_profile_cards = [
+        ui.div(
+            {"class": "shot-profile-card"},
+            ui.div(label, class_="k"),
+            ui.div(pct_display(value), class_="v"),
+            ui.div(note, class_="s"),
+        )
+        for label, value, note in shot_profile_summary
     ]
 
     sim_rows = []
@@ -692,6 +948,12 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                ui.div({"class": "bio-grid"},
                       bio_item("Division", division_label),
                       bio_item("Archetype", archetype_label(row["primary_archetype"])),
+                      bio_item(
+                          "Archetype v2",
+                          str(row.get("archetype_v2_primary_label", "Unavailable"))
+                          if pd.notna(row.get("archetype_v2_primary_label", pd.NA))
+                          else "Unavailable",
+                      ),
                       bio_item("Class",    row["cls"]),
                       bio_item("Eligibility Used", str(int(row["eligibility"])), mono=True),
                       bio_item("Height",   height_str(int(row["heightIn"])), mono=True),
@@ -702,6 +964,18 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                ui.div(
                    ui.div("Archetype Scores", class_="col-title"),
                    *archetype_scores,
+                   class_="arch-score-panel",
+               ),
+               ui.div(
+                   ui.div("Archetype v2", class_="col-title"),
+                   ui.div(
+                       ui.div(ui.tags.b("Primary: "), f"{row['archetype_v2_primary_label']} ({format_weight_pct(row['archetype_v2_primary_weight'])})", class_="qual-note"),
+                       ui.div(ui.tags.b("Secondary: "), f"{row['archetype_v2_secondary_label']} ({format_weight_pct(row['archetype_v2_secondary_weight'])})", class_="qual-note"),
+                   ) if division_label == "D-I" and bool(row.get("archetype_v2_available", False)) else ui.div(
+                       "Unavailable for this player.",
+                       class_="qual-note",
+                   ),
+                   *archetype_v2_scores,
                    class_="arch-score-panel",
                ),
                ui.div(
@@ -720,7 +994,15 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                ui.div(ui.tags.b("Bar", style="color:var(--ink-2)"),
                       " = player value.  ",
                       ui.tags.b("Tick", style="color:var(--ink-2)"),
-                      " = league mean.", class_="bar-note")),
+                      " = league mean.", class_="bar-note"),
+               ui.div(
+                   ui.div("Shot Profile", ui.span("share · fg% · assisted%", class_="sub"), class_="col-title"),
+                   ui.div(
+                       {"class": "shot-profile-shell"},
+                       ui.div({"class": "shot-profile-pie"}, make_shot_profile_pie_html(row, player_id)),
+                       ui.div({"class": "shot-profile-assists"}, *shot_profile_cards),
+                   ),
+               )),
         ui.div({"class": "detail-col"},
                ui.div("Most Similar Players ",
                       ui.span(SIMILARITY_METRIC_LABELS[similarity_metric], class_="sub"),
@@ -761,8 +1043,17 @@ def cdata(d):
     return list(zip(d["name"], d["primary_archetype"].map(archetype_label), d["team"], d["cls"],
                     d["ppg"],  d["rpg"], d["apg"],  d["id"]))
 
-def build_traces(plot_df, selected_id, dimmed_arch, dot_size=9.5, dot_opacity=0.78,
-                 compress_pc1_tail=False, compress_pc2_tail=False):
+def build_traces(
+    plot_df,
+    selected_id,
+    dimmed_arch,
+    dot_size=9.5,
+    dot_opacity=0.78,
+    compress_pc1_tail=False,
+    compress_pc2_tail=False,
+    clip_x_range=None,
+    clip_y_range=None,
+):
     traces = []
     for arch in ARCHETYPE_ORDER:
         sub  = plot_df[plot_df["primary_archetype"] == arch]
@@ -772,6 +1063,16 @@ def build_traces(plot_df, selected_id, dimmed_arch, dot_size=9.5, dot_opacity=0.
         sel   = sub[sub["id"] == selected_id] if selected_id else sub.iloc[0:0]
         rest_x = compress_positive_tail(rest["arch_pca_PC1"]) if compress_pc1_tail else rest["arch_pca_PC1"]
         rest_y = compress_negative_tail(rest["arch_pca_PC2"]) if compress_pc2_tail else rest["arch_pca_PC2"]
+        if clip_x_range is not None:
+            rest_x = pd.Series(
+                np.clip(np.asarray(rest_x, dtype=float), clip_x_range[0], clip_x_range[1]),
+                index=rest.index,
+            )
+        if clip_y_range is not None:
+            rest_y = pd.Series(
+                np.clip(np.asarray(rest_y, dtype=float), clip_y_range[0], clip_y_range[1]),
+                index=rest.index,
+            )
         if not rest.empty:
             traces.append(go.Scatter(
                 x=rest_x, y=rest_y, mode="markers",
@@ -783,6 +1084,10 @@ def build_traces(plot_df, selected_id, dimmed_arch, dot_size=9.5, dot_opacity=0.
             r = sel.iloc[0]
             sel_x = float(compress_positive_tail([r["arch_pca_PC1"]])[0]) if compress_pc1_tail else r["arch_pca_PC1"]
             sel_y = float(compress_negative_tail([r["arch_pca_PC2"]])[0]) if compress_pc2_tail else r["arch_pca_PC2"]
+            if clip_x_range is not None:
+                sel_x = float(np.clip(sel_x, clip_x_range[0], clip_x_range[1]))
+            if clip_y_range is not None:
+                sel_y = float(np.clip(sel_y, clip_y_range[0], clip_y_range[1]))
             traces.append(go.Scatter(
                 x=[sel_x], y=[sel_y], mode="markers",
                 marker=dict(size=dot_size+16, color="rgba(0,0,0,0)",
@@ -839,6 +1144,16 @@ def compress_positive_tail(values, threshold=4.0, scale=2.0):
     out = arr.copy()
     mask = np.isfinite(arr) & (arr > threshold)
     out[mask] = threshold + scale * np.log1p(arr[mask] - threshold)
+    if isinstance(values, pd.Series):
+        return pd.Series(out, index=values.index)
+    return out
+
+
+def clipped_series(values, clip_range):
+    if clip_range is None:
+        return values
+    arr = np.asarray(values, dtype=float)
+    out = np.clip(arr, clip_range[0], clip_range[1])
     if isinstance(values, pd.Series):
         return pd.Series(out, index=values.index)
     return out
@@ -901,7 +1216,16 @@ def robust_axis_range(series, selected_value=None, min_span=1.0, pad_ratio=0.08)
     return [lo - pad, hi + pad]
 
 
-def build_layout(_plot_df, selected_id=None, compress_pc1_tail=False, compress_pc2_tail=False):
+def build_layout(
+    _plot_df,
+    selected_id=None,
+    compress_pc1_tail=False,
+    compress_pc2_tail=False,
+    fixed_x_range=None,
+    fixed_y_range=None,
+    clip_x_range=None,
+    clip_y_range=None,
+):
     axis = dict(gridcolor="rgba(0,0,0,0)", zeroline=True,
                 zerolinecolor="#1e2d47", zerolinewidth=1.2,
                 tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#4a6080"),
@@ -912,10 +1236,16 @@ def build_layout(_plot_df, selected_id=None, compress_pc1_tail=False, compress_p
     selected_y = selected_row["arch_pca_PC2"].iloc[0] if not selected_row.empty else None
     x_series = compress_positive_tail(_plot_df["arch_pca_PC1"]) if compress_pc1_tail else _plot_df["arch_pca_PC1"]
     x_selected = float(compress_positive_tail([selected_x])[0]) if compress_pc1_tail and selected_x is not None else selected_x
-    x_range = robust_axis_range(x_series, selected_value=x_selected)
+    x_series = clipped_series(x_series, clip_x_range)
+    if clip_x_range is not None and x_selected is not None:
+        x_selected = float(np.clip(x_selected, clip_x_range[0], clip_x_range[1]))
+    x_range = fixed_x_range if fixed_x_range is not None else robust_axis_range(x_series, selected_value=x_selected)
     y_series = compress_negative_tail(_plot_df["arch_pca_PC2"]) if compress_pc2_tail else _plot_df["arch_pca_PC2"]
     y_selected = float(compress_negative_tail([selected_y])[0]) if compress_pc2_tail and selected_y is not None else selected_y
-    y_range = robust_axis_range(y_series, selected_value=y_selected)
+    y_series = clipped_series(y_series, clip_y_range)
+    if clip_y_range is not None and y_selected is not None:
+        y_selected = float(np.clip(y_selected, clip_y_range[0], clip_y_range[1]))
+    y_range = fixed_y_range if fixed_y_range is not None else robust_axis_range(y_series, selected_value=y_selected)
     x_axis_extra = d2_pc1_tick_spec(_plot_df["arch_pca_PC1"]) if compress_pc1_tail else {}
     y_axis_extra = d2_pc2_tick_spec(_plot_df["arch_pca_PC2"]) if compress_pc2_tail else {}
     return go.Layout(
@@ -1109,8 +1439,16 @@ def make_sidebar(prefix, df, conferences):
     efg_min, efg_max = slider_range("efg", 0.01)
     tp_min, tp_max = slider_range("tp", 0.01)
     three_share_min, three_share_max = slider_range("three_share", 0.01)
+    rim_share_min, rim_share_max = slider_range("rim_share", 0.01) if "rim_share" in df.columns else (0, 1)
+    mid_share_min, mid_share_max = slider_range("mid_share", 0.01) if "mid_share" in df.columns else (0, 1)
     apg_min, apg_max = slider_range("apg", 0.1)
     ato_min, ato_max = slider_range("ast_tov", 0.1)
+    assisted_fg_pct_min, assisted_fg_pct_max = slider_range("assisted_fg_pct", 0.01) if "assisted_fg_pct" in df.columns else (0, 1)
+    rim_fg_pct_min, rim_fg_pct_max = slider_range("rim_fg_pct", 0.01) if "rim_fg_pct" in df.columns else (0, 1)
+    mid_fg_pct_min, mid_fg_pct_max = slider_range("mid_fg_pct", 0.01) if "mid_fg_pct" in df.columns else (0, 1)
+    rim_ast_pct_min, rim_ast_pct_max = slider_range("rim_assisted_pct", 0.01) if "rim_assisted_pct" in df.columns else (0, 1)
+    mid_ast_pct_min, mid_ast_pct_max = slider_range("mid_assisted_pct", 0.01) if "mid_assisted_pct" in df.columns else (0, 1)
+    three_ast_pct_min, three_ast_pct_max = slider_range("three_assisted_pct", 0.01) if "three_assisted_pct" in df.columns else (0, 1)
     rpg_min, rpg_max = slider_range("rpg", 0.1)
     drb_min, drb_max = slider_range("drb", 0.1)
     bpg_min, bpg_max = slider_range("bpg", 0.1)
@@ -1165,10 +1503,85 @@ def make_sidebar(prefix, df, conferences):
                class_="sb-section")
         if has_porpag else ui.div()
     )
+    has_archetype_v2 = prefix == "d1" and "archetype_v2_primary_code" in df.columns
+    archetype_v2_filter = (
+        ui.div(
+            ui.div(
+                ui.span("Archetype v2"),
+                ui.tags.button(
+                    "clear",
+                    class_="clear-btn",
+                    onclick=f"Shiny.setInputValue('{prefix}_clear_arch_v2',Math.random())",
+                ),
+                class_="sb-section-head",
+            ),
+            ui.input_checkbox_group(
+                f"{prefix}_archetypes_v2",
+                None,
+                choices={code: archetype_v2_label(code) for code in ARCHETYPE_V2_ORDER},
+            ),
+            class_="sb-section",
+        )
+        if has_archetype_v2 else ui.div()
+    )
+    archetype_v2_score_filter = (
+        ui.div(
+            ui.div("Minimum archetype v2 weight", class_="sb-section-head"),
+            ui.input_slider(
+                f"{prefix}_score_v2_min",
+                None,
+                min=0,
+                max=100,
+                value=0,
+                step=1,
+            ),
+            class_="sb-section",
+        )
+        if has_archetype_v2 else ui.div()
+    )
+    low_sample_toggle = (
+        ui.div(
+            ui.div("Sample Size", class_="sb-section-head"),
+            ui.input_checkbox(f"{prefix}_exclude_low_sample", "Exclude low sample size", value=False),
+            class_="sb-section",
+        )
+        if prefix == "d1" and "low_sample_size" in df.columns else ui.div()
+    )
+    shot_profile_filters = (
+        ui.div(
+            ui.div("Overall Assisted FG%", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_assisted_fg_pct", None, min=assisted_fg_pct_min, max=assisted_fg_pct_max,
+                            value=[assisted_fg_pct_min, assisted_fg_pct_max], step=0.01),
+            ui.div("Rim Share", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_rim_share", None, min=rim_share_min, max=rim_share_max,
+                            value=[rim_share_min, rim_share_max], step=0.01),
+            ui.div("Mid Share", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_mid_share", None, min=mid_share_min, max=mid_share_max,
+                            value=[mid_share_min, mid_share_max], step=0.01),
+            ui.div("Rim FG%", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_rim_fg_pct", None, min=rim_fg_pct_min, max=rim_fg_pct_max,
+                            value=[rim_fg_pct_min, rim_fg_pct_max], step=0.01),
+            ui.div("Mid FG%", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_mid_fg_pct", None, min=mid_fg_pct_min, max=mid_fg_pct_max,
+                            value=[mid_fg_pct_min, mid_fg_pct_max], step=0.01),
+            ui.div("Rim Assisted%", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_rim_assisted_pct", None, min=rim_ast_pct_min, max=rim_ast_pct_max,
+                            value=[rim_ast_pct_min, rim_ast_pct_max], step=0.01),
+            ui.div("Mid Assisted%", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_mid_assisted_pct", None, min=mid_ast_pct_min, max=mid_ast_pct_max,
+                            value=[mid_ast_pct_min, mid_ast_pct_max], step=0.01),
+            ui.div("3PT Assisted%", class_="sb-section-head"),
+            ui.input_slider(f"{prefix}_three_assisted_pct", None, min=three_ast_pct_min, max=three_ast_pct_max,
+                            value=[three_ast_pct_min, three_ast_pct_max], step=0.01),
+            class_="sb-section",
+        )
+        if prefix == "d1" and "assisted_fg_pct" in df.columns else ui.div()
+    )
 
     return ui.div(
         {"class": "sidebar"},
         ui.div("Filters", class_="sb-title"),
+        low_sample_toggle,
         ui.div(ui.div("Search by name", class_="sb-section-head"),
                ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
                class_="sb-section"),
@@ -1193,6 +1606,8 @@ def make_sidebar(prefix, df, conferences):
                ui.input_slider(f"{prefix}_score_min", None, min=0, max=100,
                                value=0, step=1),
                class_="sb-section"),
+        archetype_v2_filter,
+        archetype_v2_score_filter,
         ui.div(ui.div(ui.span("Position"),
                       ui.tags.button("clear", class_="clear-btn",
                           onclick=f"Shiny.setInputValue('{prefix}_clear_pos',Math.random())"),
@@ -1253,6 +1668,7 @@ def make_sidebar(prefix, df, conferences):
                ui.input_slider(f"{prefix}_three_share", None, min=three_share_min, max=three_share_max,
                                value=[three_share_min, three_share_max], step=0.01),
                class_="sb-section"),
+        shot_profile_filters,
         ui.div(ui.div("APG", class_="sb-section-head"),
                ui.input_slider(f"{prefix}_apg_range", None, min=apg_min, max=apg_max,
                                value=[apg_min, apg_max], step=0.1),
@@ -1318,6 +1734,13 @@ def apply_archetype_score_filter(df, mode, min_score):
     if score_col not in df.columns:
         score_col = "primary_score"
     scores = pd.to_numeric(df[score_col], errors="coerce").fillna(-1)
+    return df[scores >= min_score]
+
+
+def apply_archetype_v2_score_filter(df, min_score):
+    if "archetype_v2_primary_weight" not in df.columns:
+        return df
+    scores = pd.to_numeric(df["archetype_v2_primary_weight"], errors="coerce").fillna(-1) * 100
     return df[scores >= min_score]
 
 def apply_tag_filters(df, tags):
@@ -1493,6 +1916,64 @@ app_ui = ui.page_fluid(
                 flex-shrink:0; transition:color .15s, transform .1s;
             }
             .star-btn:hover { transform:scale(1.2); }
+            .sample-badge {
+                display:inline-block;
+                margin-top:8px;
+                padding:4px 8px;
+                border-radius:999px;
+                background:rgba(200,168,75,.18);
+                color:#f0d58a;
+                border:1px solid rgba(200,168,75,.45);
+                font-family:var(--mono);
+                font-size:10px;
+                letter-spacing:.08em;
+                text-transform:uppercase;
+            }
+            .shot-profile-shell {
+                display:grid;
+                grid-template-columns:220px 1fr;
+                gap:14px;
+                align-items:start;
+                margin-top:8px;
+            }
+            .shot-profile-pie {
+                background:rgba(255,255,255,0.02);
+                border:1px solid var(--rule);
+                padding:8px;
+            }
+            .shot-profile-assists {
+                display:grid;
+                gap:8px;
+                height:220px;
+                grid-template-rows:repeat(3, 1fr);
+            }
+            .shot-profile-card {
+                border:1px solid var(--rule);
+                background:rgba(255,255,255,0.02);
+                padding:8px 10px;
+                display:flex;
+                flex-direction:column;
+                justify-content:center;
+            }
+            .shot-profile-card .k {
+                font-size:10px;
+                letter-spacing:.12em;
+                text-transform:uppercase;
+                color:var(--ink-3);
+                margin-bottom:4px;
+            }
+            .shot-profile-card .v {
+                font-family:var(--serif);
+                font-size:18px;
+                color:var(--ink);
+                line-height:1;
+            }
+            .shot-profile-card .s {
+                color:var(--ink-2);
+                font-size:11px;
+                line-height:1.4;
+                margin-top:6px;
+            }
 
             /* watchlist tab layout */
             .wl-shell {
@@ -2014,10 +2495,10 @@ app_ui = ui.page_fluid(
         ),
 
         ui.div({"id": "tab-switcher"},
-               ui.tags.button("Division I",   id="btn-d1", class_="tab-btn",
+               ui.tags.button("Division I",   id="btn-d1", class_="tab-btn active-d1",
                               onclick="switchTab('d1')"),
                ui.div({"class": "tab-sep"}),
-               ui.tags.button("Division II",  id="btn-d2", class_="tab-btn active-d2",
+               ui.tags.button("Division II",  id="btn-d2", class_="tab-btn",
                               onclick="switchTab('d2')"),
                ui.div({"class": "tab-sep"}),
                ui.tags.button("Division III", id="btn-d3", class_="tab-btn",
@@ -2033,12 +2514,12 @@ app_ui = ui.page_fluid(
 
         ui.div({"id": "tab-content"},
 
-            ui.div({"id": "d1-tab", "class": "tab-panel"},
+            ui.div({"id": "d1-tab", "class": "tab-panel active"},
                    ui.div({"class": "body-grid"},
                           make_sidebar("d1", d1_df, d1_conferences),
                           make_plot_area("d1"))),
 
-            ui.div({"id": "d2-tab", "class": "tab-panel active"},
+            ui.div({"id": "d2-tab", "class": "tab-panel"},
                    ui.div({"class": "body-grid"},
                           make_sidebar("d2", d2_df, d2_conferences),
                           make_plot_area("d2"))),
@@ -2104,21 +2585,107 @@ def server(input, output, session):
     d2_fig = go.FigureWidget()
     d3_fig = go.FigureWidget()
 
+    def default_slider_range(df, column, step):
+        vals = pd.to_numeric(df[column], errors="coerce").dropna()
+        if vals.empty:
+            return (0, 0)
+        lo = float(np.floor(vals.min() / step) * step)
+        hi = float(np.ceil(vals.max() / step) * step)
+        if step >= 1:
+            return (int(lo), int(hi))
+        decimals = len(str(step).split(".")[1].rstrip("0"))
+        return (round(lo, decimals), round(hi, decimals))
+
+    def d1_home_view_active():
+        q = (input.d1_q() or "").strip()
+        qual_mode = input.d1_qualification_filter() or "none"
+        transfer_tags = list(input.d1_transfer_tags() or [])
+        recruiting_tag = input.d1_recruiting_tag() or "none"
+        archetypes = list(input.d1_archetypes() or [])
+        archetypes_v2 = list(input.d1_archetypes_v2() or [])
+        positions = list(input.d1_positions() or [])
+        classes = list(input.d1_classes() or [])
+        confs = list(input.d1_confs() or [])
+        teams = list(input.d1_team() or [])
+
+        if any([
+            q,
+            qual_mode != "none",
+            transfer_tags,
+            recruiting_tag != "none",
+            archetypes,
+            archetypes_v2,
+            positions,
+            classes,
+            confs,
+            teams,
+            bool(input.d1_exclude_low_sample()),
+            d1_sel.get() is not None,
+            bool(d1_dim.get()),
+        ]):
+            return False
+
+        def is_full_range(current, column, step):
+            lo, hi = default_slider_range(d1_df, column, step)
+            cur_lo, cur_hi = current
+            return abs(float(cur_lo) - lo) < 1e-9 and abs(float(cur_hi) - hi) < 1e-9
+
+        return all([
+            is_full_range(input.d1_mpg(), "mpg", 0.1),
+            is_full_range(input.d1_ppg_range(), "ppg", 0.1),
+            is_full_range(input.d1_rpg_range(), "rpg", 0.1),
+            is_full_range(input.d1_drb_range(), "drb", 0.1),
+            is_full_range(input.d1_efg(), "efg", 0.01),
+            is_full_range(input.d1_tp_range(), "tp", 0.01),
+            is_full_range(input.d1_three_share(), "three_share", 0.01),
+            is_full_range(input.d1_rim_share(), "rim_share", 0.01),
+            is_full_range(input.d1_mid_share(), "mid_share", 0.01),
+            is_full_range(input.d1_assisted_fg_pct(), "assisted_fg_pct", 0.01),
+            is_full_range(input.d1_rim_fg_pct(), "rim_fg_pct", 0.01),
+            is_full_range(input.d1_mid_fg_pct(), "mid_fg_pct", 0.01),
+            is_full_range(input.d1_rim_assisted_pct(), "rim_assisted_pct", 0.01),
+            is_full_range(input.d1_mid_assisted_pct(), "mid_assisted_pct", 0.01),
+            is_full_range(input.d1_three_assisted_pct(), "three_assisted_pct", 0.01),
+            is_full_range(input.d1_apg_range(), "apg", 0.1),
+            is_full_range(input.d1_bpm(), "bpm", 0.1),
+            is_full_range(input.d1_porpag(), "porpag", 0.1),
+            is_full_range(input.d1_spg_range(), "spg", 0.1),
+            is_full_range(input.d1_bpg_range(), "bpg", 0.1),
+            is_full_range(input.d1_ast_tov(), "ast_tov", 0.1),
+            is_full_range(input.d1_height(), "heightIn", 1),
+            tuple(input.d1_eligibility()) == (
+                *default_slider_range(d1_df, "eligibility", 1),
+            ),
+            float(input.d1_score_min() or 0) == 0.0,
+            float(input.d1_score_v2_min() or 0) == 0.0,
+        ])
+
     def sync_scatter(fig, plot_df, selected_id, dimmed_arch, click_handler):
         compress_pc1_tail = fig is d2_fig
         compress_pc2_tail = fig is d2_fig
+        d1_default_view = fig is d1_fig and d1_home_view_active()
+        fixed_x_range = [-3.5, 6.5] if d1_default_view else None
+        fixed_y_range = [-4.5, 4.5] if d1_default_view else None
+        clip_x_range = [-3, 6] if d1_default_view else None
+        clip_y_range = [-4, 4] if d1_default_view else None
         traces = build_traces(
             plot_df,
             selected_id,
             dimmed_arch,
             compress_pc1_tail=compress_pc1_tail,
             compress_pc2_tail=compress_pc2_tail,
+            clip_x_range=clip_x_range,
+            clip_y_range=clip_y_range,
         )
         layout = build_layout(
             plot_df,
             selected_id=selected_id,
             compress_pc1_tail=compress_pc1_tail,
             compress_pc2_tail=compress_pc2_tail,
+            fixed_x_range=fixed_x_range,
+            fixed_y_range=fixed_y_range,
+            clip_x_range=clip_x_range,
+            clip_y_range=clip_y_range,
         )
         with fig.batch_update():
             fig.data = []
@@ -2224,6 +2791,11 @@ def server(input, output, session):
         ui.update_checkbox_group("d1_archetypes", selected=[])
 
     @reactive.effect
+    @reactive.event(input.d1_clear_arch_v2)
+    def _d1_clear_arch_v2():
+        ui.update_checkbox_group("d1_archetypes_v2", selected=[])
+
+    @reactive.effect
     @reactive.event(input.d1_clear_cls)
     def _d1_clear_cls():
         ui.update_checkbox_group("d1_classes", selected=[])
@@ -2280,6 +2852,8 @@ def server(input, output, session):
         d = d1_df.copy()
         qual_mode = input.d1_qualification_filter()
         d = apply_qualification_filter(d, qual_mode)
+        if bool(input.d1_exclude_low_sample()):
+            d = d[~d["low_sample_size"].fillna(False)]
         q = (input.d1_q() or "").strip().lower()
         if q: d = d[d["name"].str.lower().str.contains(q, na=False)]
         d = apply_tag_filters(d, list(input.d1_transfer_tags() or []))
@@ -2287,6 +2861,9 @@ def server(input, output, session):
         archs = list(input.d1_archetypes() or [])
         if archs: d = d[d["primary_archetype"].isin(archs)]
         d = apply_archetype_score_filter(d, qual_mode, input.d1_score_min())
+        archs_v2 = list(input.d1_archetypes_v2() or [])
+        if archs_v2: d = d[d["archetype_v2_primary_code"].isin(archs_v2)]
+        d = apply_archetype_v2_score_filter(d, input.d1_score_v2_min())
         ps = list(input.d1_positions() or [])
         if ps: d = d[d["pos"].isin(ps)]
         cs = list(input.d1_classes() or [])
@@ -2303,6 +2880,14 @@ def server(input, output, session):
         lo, hi = input.d1_efg();         d = d[(d["efg"]         >= lo) & (d["efg"]         <= hi)]
         lo, hi = input.d1_tp_range();    d = d[(d["tp"]          >= lo) & (d["tp"]          <= hi)]
         lo, hi = input.d1_three_share(); d = d[(d["three_share"]  >= lo) & (d["three_share"]  <= hi)]
+        lo, hi = input.d1_rim_share();   d = d[(d["rim_share"]    >= lo) & (d["rim_share"]    <= hi)]
+        lo, hi = input.d1_mid_share();   d = d[(d["mid_share"]    >= lo) & (d["mid_share"]    <= hi)]
+        lo, hi = input.d1_assisted_fg_pct(); d = d[(d["assisted_fg_pct"] >= lo) & (d["assisted_fg_pct"] <= hi)]
+        lo, hi = input.d1_rim_fg_pct();  d = d[(d["rim_fg_pct"]   >= lo) & (d["rim_fg_pct"]   <= hi)]
+        lo, hi = input.d1_mid_fg_pct();  d = d[(d["mid_fg_pct"]   >= lo) & (d["mid_fg_pct"]   <= hi)]
+        lo, hi = input.d1_rim_assisted_pct(); d = d[(d["rim_assisted_pct"] >= lo) & (d["rim_assisted_pct"] <= hi)]
+        lo, hi = input.d1_mid_assisted_pct(); d = d[(d["mid_assisted_pct"] >= lo) & (d["mid_assisted_pct"] <= hi)]
+        lo, hi = input.d1_three_assisted_pct(); d = d[(d["three_assisted_pct"] >= lo) & (d["three_assisted_pct"] <= hi)]
         lo, hi = input.d1_apg_range();   d = d[(d["apg"]         >= lo) & (d["apg"]         <= hi)]
         lo, hi = input.d1_bpm();         d = d[(d["bpm"]         >= lo) & (d["bpm"]         <= hi)]
         lo, hi = input.d1_porpag();      d = d[(d["porpag"]      >= lo) & (d["porpag"]      <= hi)]
@@ -2819,6 +3404,11 @@ def server(input, output, session):
                     ui.div(
                         ui.span(archetype_label(r["primary_archetype"]), class_="pos-badge",
                                 style=f"color:{pc_};border-color:{pc_}"),
+                        ui.span(
+                            str(r["archetype_v2_primary_label"]),
+                            class_="pos-badge",
+                            style="color:#2f855a;border-color:#2f855a",
+                        ) if div_ == "D-I" and bool(r.get("archetype_v2_available", False)) else ui.span(),
                         ui.span(r["team"]),
                         ui.span(f"· {r['cls']} · {div_}", style="color:var(--ink-3)"),
                         class_="wl-card-meta"),

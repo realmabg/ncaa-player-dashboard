@@ -506,7 +506,7 @@ html, body {
 .col-title     { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; border-bottom: 1px solid var(--ink); padding-bottom: 5px; margin-bottom: 10px; }
 .col-title .sub { font-family: var(--serif); font-style: italic; text-transform: none; letter-spacing: 0; color: var(--ink-2); font-weight: 400; margin-left: 8px; font-size: 10.5px; }
 
-.statline      { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px 12px; margin-bottom: 14px; }
+.statline      { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px 12px; margin-bottom: 6px; }
 .stat-cell     { border-top: 1px solid var(--ink); padding-top: 5px; }
 .stat-cell .num { font-family: var(--serif); font-size: 20px; font-weight: 600; line-height: 1; }
 .stat-cell .lbl { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-top: 3px; }
