@@ -388,10 +388,16 @@ def make_shot_profile_pie_html(row, player_id):
     if total_attempts <= 0:
         return ui.div("No FGA.", class_="qual-note")
 
-    def shot_slice_color(fg_pct):
-        if fg_pct >= 0.50:
+    def shot_slice_color(label, fg_pct):
+        thresholds = {
+            "RIM": (0.60, 0.50),
+            "3PT": (0.37, 0.32),
+            "MID": (0.42, 0.36),
+        }
+        strong_cutoff, medium_cutoff = thresholds.get(label, (0.50, 0.35))
+        if fg_pct >= strong_cutoff:
             return "#2f855a"
-        if fg_pct >= 0.35:
+        if fg_pct >= medium_cutoff:
             return "#d5a437"
         return "#b95c5c"
 
@@ -465,7 +471,7 @@ def make_shot_profile_pie_html(row, player_id):
         )
         hover_attr = html.escape(hover, quote=True)
         svg_parts.append(
-            f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="{shot_slice_color(fg_pct)}" '
+            f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="{shot_slice_color(label, fg_pct)}" '
             'stroke="#f4ead4" stroke-width="2" '
             f'data-tip="{hover_attr}" '
             'onmousemove="const wrap=this.closest(\'.shot-pie-wrap\');'
@@ -501,7 +507,7 @@ def make_shot_profile_pie_html(row, player_id):
         )
         hover_attr = html.escape(hover, quote=True)
         svg_parts.append(
-            f'<path d="{path}" fill="{shot_slice_color(fg_pct)}" stroke="#f4ead4" stroke-width="2" '
+            f'<path d="{path}" fill="{shot_slice_color(label, fg_pct)}" stroke="#f4ead4" stroke-width="2" '
             f'data-tip="{hover_attr}" '
             'onmousemove="const wrap=this.closest(\'.shot-pie-wrap\');'
             'const readout=wrap&&wrap.querySelector(\'.shot-pie-readout\');'
@@ -1153,7 +1159,7 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                       bio_item("Division", division_label),
                       bio_item("Archetype", archetype_label(row["primary_archetype"])),
                       bio_item(
-                          "Archetype v2",
+                          "UCSD Position",
                           str(row.get("archetype_v2_primary_label", "Unavailable"))
                           if pd.notna(row.get("archetype_v2_primary_label", pd.NA))
                           else "Unavailable",
@@ -1171,7 +1177,7 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                    class_="arch-score-panel",
                ),
                ui.div(
-                   ui.div("Archetype v2", class_="col-title"),
+                   ui.div("UCSD Position", class_="col-title"),
                    ui.div(
                        ui.div(ui.tags.b("Primary: "), f"{row['archetype_v2_primary_label']} ({format_weight_pct(row['archetype_v2_primary_weight'])})", class_="qual-note"),
                        ui.div(ui.tags.b("Secondary: "), f"{row['archetype_v2_secondary_label']} ({format_weight_pct(row['archetype_v2_secondary_weight'])})", class_="qual-note"),
@@ -1752,7 +1758,7 @@ def make_sidebar(prefix, df, conferences):
     archetype_v2_filter = (
         ui.div(
             ui.div(
-                ui.span("Archetype v2"),
+                ui.span("UCSD Position"),
                 ui.tags.button(
                     "clear",
                     class_="clear-btn",
@@ -1771,7 +1777,7 @@ def make_sidebar(prefix, df, conferences):
     )
     archetype_v2_score_filter = (
         ui.div(
-            ui.div("Minimum archetype v2 weight", class_="sb-section-head"),
+            ui.div("Minimum UCSD position weight", class_="sb-section-head"),
             ui.input_slider(
                 f"{prefix}_score_v2_min",
                 None,
@@ -1831,7 +1837,7 @@ def make_sidebar(prefix, df, conferences):
         ui.div(ui.div("Search by name", class_="sb-section-head"),
                ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
                class_="sb-section"),
-        ui.div(ui.div("Filter Mode", class_="sb-section-head"),
+        ui.div(ui.div("UCSD Position", class_="sb-section-head"),
                ui.input_select(
                    f"{prefix}_qualification_filter",
                    None,
@@ -1841,7 +1847,7 @@ def make_sidebar(prefix, df, conferences):
                class_="sb-section"),
         transfer_tag_filter,
         recruiting_tag_filter,
-        ui.div(ui.div(ui.span("Most Similar Archetype"),
+        ui.div(ui.div(ui.span("Most Similar UCSD Position"),
                       ui.tags.button("clear", class_="clear-btn",
                           onclick=f"Shiny.setInputValue('{prefix}_clear_arch',Math.random())"),
                       class_="sb-section-head"),
@@ -2863,7 +2869,10 @@ app_ui = ui.page_fluid(
                ui.tags.button(
                    ui.HTML('Watchlist <span id="wl-badge" class="wl-badge" style="display:none">0</span>'),
                    id="btn-wl", class_="tab-btn",
-                   onclick="switchTab('wl')")),
+                   onclick="switchTab('wl')"),
+               ui.div({"class": "tab-sep"}),
+               ui.tags.button("UCSD 2026-27 (beta)", id="btn-ucsd", class_="tab-btn",
+                              onclick="switchTab('ucsd')")),
 
         ui.div({"id": "tab-content"},
 
