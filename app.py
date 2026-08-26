@@ -1837,7 +1837,7 @@ def make_sidebar(prefix, df, conferences):
         ui.div(ui.div("Search by name", class_="sb-section-head"),
                ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
                class_="sb-section"),
-        ui.div(ui.div("UCSD Position", class_="sb-section-head"),
+        ui.div(ui.div("Qualified UCSD Position", class_="sb-section-head"),
                ui.input_select(
                    f"{prefix}_qualification_filter",
                    None,
