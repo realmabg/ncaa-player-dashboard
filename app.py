@@ -1172,11 +1172,6 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                       bio_item("BPM",      f"{bpm_value:.1f}" if pd.notna(bpm_value) else "N/A", mono=True),
                       bio_item("PORPAG",   f"{porpag_value:.2f}" if pd.notna(porpag_value) else "N/A", mono=True)),
                ui.div(
-                   ui.div("Archetype Scores", class_="col-title"),
-                   *archetype_scores,
-                   class_="arch-score-panel",
-               ),
-               ui.div(
                    ui.div("UCSD Position", class_="col-title"),
                    ui.div(
                        ui.div(ui.tags.b("Primary: "), f"{row['archetype_v2_primary_label']} ({format_weight_pct(row['archetype_v2_primary_weight'])})", class_="qual-note"),
@@ -1186,6 +1181,11 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                        class_="qual-note",
                    ),
                    *archetype_v2_scores,
+                   class_="arch-score-panel",
+               ),
+               ui.div(
+                   ui.div("Archetype Scores", class_="col-title"),
+                   *archetype_scores,
                    class_="arch-score-panel",
                ),
                ui.div(
@@ -1758,7 +1758,7 @@ def make_sidebar(prefix, df, conferences):
     archetype_v2_filter = (
         ui.div(
             ui.div(
-                ui.span("UCSD Position"),
+                ui.span("Archetype"),
                 ui.tags.button(
                     "clear",
                     class_="clear-btn",
@@ -1777,7 +1777,7 @@ def make_sidebar(prefix, df, conferences):
     )
     archetype_v2_score_filter = (
         ui.div(
-            ui.div("Minimum UCSD position weight", class_="sb-section-head"),
+            ui.div("Minimum Archetype Weight", class_="sb-section-head"),
             ui.input_slider(
                 f"{prefix}_score_v2_min",
                 None,
@@ -1854,7 +1854,7 @@ def make_sidebar(prefix, df, conferences):
                ui.input_checkbox_group(f"{prefix}_archetypes", None,
                                        choices={a: archetype_label(a) for a in ARCHETYPE_ORDER}),
                class_="sb-section"),
-        ui.div(ui.div("Minimum archetype score", class_="sb-section-head"),
+        ui.div(ui.div("Minimum UCSD Position Score", class_="sb-section-head"),
                ui.input_slider(f"{prefix}_score_min", None, min=0, max=100,
                                value=0, step=1),
                class_="sb-section"),
