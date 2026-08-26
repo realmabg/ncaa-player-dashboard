@@ -1172,7 +1172,7 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                       bio_item("BPM",      f"{bpm_value:.1f}" if pd.notna(bpm_value) else "N/A", mono=True),
                       bio_item("PORPAG",   f"{porpag_value:.2f}" if pd.notna(porpag_value) else "N/A", mono=True)),
                ui.div(
-                   ui.div("UCSD Position", class_="col-title"),
+                   ui.div("Archetype", class_="col-title"),
                    ui.div(
                        ui.div(ui.tags.b("Primary: "), f"{row['archetype_v2_primary_label']} ({format_weight_pct(row['archetype_v2_primary_weight'])})", class_="qual-note"),
                        ui.div(ui.tags.b("Secondary: "), f"{row['archetype_v2_secondary_label']} ({format_weight_pct(row['archetype_v2_secondary_weight'])})", class_="qual-note"),
@@ -1184,7 +1184,7 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                    class_="arch-score-panel",
                ),
                ui.div(
-                   ui.div("Archetype Scores", class_="col-title"),
+                   ui.div("UCSD Position", class_="col-title"),
                    *archetype_scores,
                    class_="arch-score-panel",
                ),
