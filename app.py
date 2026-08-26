@@ -2871,7 +2871,7 @@ app_ui = ui.page_fluid(
                    id="btn-wl", class_="tab-btn",
                    onclick="switchTab('wl')"),
                ui.div({"class": "tab-sep"}),
-               ui.tags.button("UCSD 2026-27 (beta)", id="btn-ucsd", class_="tab-btn",
+               ui.tags.button("UCSD 26-27 (beta)", id="btn-ucsd", class_="tab-btn",
                               onclick="switchTab('ucsd')")),
 
         ui.div({"id": "tab-content"},
