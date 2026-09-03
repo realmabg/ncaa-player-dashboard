@@ -1949,6 +1949,8 @@ function playerRowHtml(id, p, opts) {
   opts = opts || {};
   const bpr = getEffectiveBpr(p);
   const bprClass = bpr >= 3 ? 'c-gold' : bpr >= -1 ? 'c-muted' : 'c-red';
+  const tsText = p.ts == null ? '—' : p.ts;
+  const prpgiText = p.prpgi == null ? '—' : `${p.prpgi > 0 ? '+' : ''}${p.prpgi}`;
   const numColor = opts.muted ? 'color: var(--muted);' : (opts.gold ? 'color: var(--gold);' : '');
   const nameClass = opts.gold ? 'p-name new-player' : 'p-name';
   const badges = [];
@@ -1965,7 +1967,7 @@ function playerRowHtml(id, p, opts) {
       </div>
       <div>
         <div class="p-bpr ${bprClass}">${bpr > 0 ? '+' : ''}${bpr}</div>
-        <div class="p-ts">TS% ${p.ts} · PRPG! ${p.prpgi > 0 ? '+' : ''}${p.prpgi}</div>
+        <div class="p-ts">TS% ${tsText} · PRPG! ${prpgiText}</div>
       </div>
       <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('${id}')" id="btn-${id}">+</button>
     </div>`;
