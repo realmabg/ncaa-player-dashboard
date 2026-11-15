@@ -7864,7 +7864,7 @@ def server(input, output, session):
     def _restore_watchlist():
         payload = input.watchlist_restore() or {}
         stored = payload.get("ids") if isinstance(payload, dict) else None
-        if not isinstance(stored, list):
+        if not isinstance(stored, (list, tuple)):
             stored = []
         # Rosters change between data refreshes; drop ids that no longer
         # resolve to a player rather than carrying dead cards forward.
