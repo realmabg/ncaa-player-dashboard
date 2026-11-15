@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from shiny import reactive, render, ui
 
-from player_projections import format_projection, projection_values, projections_for_season
+from player_projections import STAT_HEADERS, format_projection, projection_values, projections_for_season
 
 CSV_URL = (
     "https://raw.githubusercontent.com/Siddhu-S/ncaa-player-dashboard/"
@@ -260,7 +260,7 @@ def stat_cell(value, percentile):
             f'<span class="ratings-percentile {tone}">{percentile:.0f}%</span></td>')
 
 
-def sort_header(column, label, sort_column, ascending):
+def sort_header(column, label, sort_column, ascending, *, definition=None):
     sort_attr = marker = ""
     if column == sort_column:
         direction = "ascending" if ascending else "descending"
@@ -268,7 +268,8 @@ def sort_header(column, label, sort_column, ascending):
         marker = " ↑" if ascending else " ↓"
     cell_class = ' class="ratings-player-column"' if column == "player_name" else ""
     click = f"Shiny.setInputValue('ratings_sort_click','{column}',{{priority:'event'}})"
-    return (f'<th scope="col" {cell_class}{sort_attr}>'
+    title = f' title="{html.escape(definition, quote=True)}"' if definition else ""
+    return (f'<th scope="col"{cell_class}{sort_attr}{title}>'
             f'<button type="button" onclick="{click}">'
             f'{label}{marker}</button></th>')
 
@@ -282,7 +283,8 @@ def render_ratings_board(rows, sort_column, ascending):
     for column, label in PLAYER_COLUMNS:
         parts.append(sort_header(column, label, sort_column, ascending))
     for key, stat in zip(keys, stats, strict=True):
-        parts.append(sort_header(key, html.escape(stat["label"]), sort_column, ascending))
+        label, definition = STAT_HEADERS[stat["key"]]
+        parts.append(sort_header(key, label, sort_column, ascending, definition=definition))
     parts.append("</tr></thead><tbody>")
     for rank, record in enumerate(rows.itertuples(index=False), start=1):
         player = html.escape(str(record.player_name)) if pd.notna(record.player_name) else "—"
@@ -295,7 +297,7 @@ def render_ratings_board(rows, sort_column, ascending):
             parts.append(stat_cell(f"{value:+.2f}" if pd.notna(value) else "",
                                    getattr(record, f"pct_{column}")))
         for key, stat in zip(keys, stats, strict=True):
-            value = format_projection(getattr(record, key), stat["unit"])
+            value = format_projection(getattr(record, key), stat)
             parts.append(stat_cell(value, getattr(record, f"pct_{key}")))
         parts.append("</tr>")
     parts.append("</tbody></table>")

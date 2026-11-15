@@ -179,12 +179,17 @@ def main():
     if any(set(values) != set(ALL_STATS) for values in forecasts.values()):
         raise ValueError("Expected all 18 forecast stats per mapped roster player")
 
-    evidence = game_evidence(read_games(games_path, SEASON, pd.Timestamp(args.date), aliases))
+    eligible_games = read_games(games_path, SEASON, pd.Timestamp(args.date), aliases)
+    evidence = game_evidence(eligible_games)
     totals = evidence.groupby(["player_id", "team"]).sum(numeric_only=True)
     actuals = {
         stat: totals[f"{stat}_k"].div(totals[f"{stat}_e"].where(totals[f"{stat}_e"].gt(0)))
         for stat in ALL_STATS
     }
+    # FTR is a season ratio. A zero-FGA game can still add free-throw attempts.
+    attempts = eligible_games.groupby(["player_id", "team"])[["ft_a", "two_a", "three_a"]].sum()
+    fga = attempts.two_a + attempts.three_a
+    actuals["ftr"] = attempts.ft_a.div(fga.where(fga.gt(0)))
     actuals = pd.DataFrame(actuals).astype(object)
     actuals = actuals.where(actuals.notna(), None)
 

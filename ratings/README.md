@@ -103,6 +103,14 @@ full published Ratings snapshot, before search or filters. Ties share a rank.
 Lower turnover and foul rates receive higher percentiles. BPM and RAPM use
 their observed ratings in both views.
 
+Hover over a stat header for its denominator. **TO%** uses estimated
+personal possessions (usage × estimated on-court team possessions).
+**TO/100** uses all estimated on-court team possessions. **STL%** uses
+estimated opponent possessions at the game’s common pace and **BLK%** uses
+estimated opponent two-point attempts. **FTR** pools all free-throw and
+field-goal attempts across games, including free throws from zero-FGA games.
+
+
 To refresh the bundled projection snapshot, run
 `scripts/export_player_projections.py` with the forecasting workspace's Python
 environment. Supply these inputs for the same season:
