@@ -106,8 +106,15 @@ def read_ratings(raw):
 
 def ratings_tab_server(input, session):
     snapshot = reactive.Value(None)
-    error = reactive.Value(False)
     sort = reactive.Value(("rapm", False))
+
+    @reactive.extended_task
+    async def download_ratings():
+        return read_ratings(await asyncio.wait_for(fetch_csv(), timeout=20))
+
+    @reactive.effect
+    def preload_ratings():
+        download_ratings()
 
     @reactive.effect
     @reactive.event(input.ratings_sort_click)
@@ -121,27 +128,28 @@ def ratings_tab_server(input, session):
 
     @reactive.effect
     @reactive.event(input.active_tab)
-    async def refresh_ratings():
-        if input.active_tab() != "ratings":
+    def retry_ratings():
+        if input.active_tab() == "ratings" and download_ratings.status() == "error":
+            download_ratings()
+
+    @reactive.effect
+    def apply_ratings():
+        if download_ratings.status() != "success":
             return
-        try:
-            raw = await asyncio.wait_for(fetch_csv(), timeout=20)
-            frame = read_ratings(raw)
-            teams = sorted(frame["team"].dropna().unique())
+        frame = download_ratings.result()
+        teams = sorted(frame["team"].dropna().unique())
+        with reactive.isolate():
             selected = input.ratings_team()
-            ui.update_select("ratings_team", choices={"": "Any team", **{team: team for team in teams}},
-                             selected=selected if selected in teams else "", session=session)
-            snapshot.set(frame)
-            error.set(False)
-        except (OSError, ValueError, RuntimeError):
-            error.set(True)
+        ui.update_select("ratings_team", choices={"": "Any team", **{team: team for team in teams}},
+                         selected=selected if selected in teams else "", session=session)
+        snapshot.set(frame)
 
     @render.ui
     def ratings_status():
         current = snapshot.get()
         if current is None:
             return ("The ratings CSV is unavailable. Reopen the tab to retry."
-                    if error.get() else "Loading the daily ratings…")
+                    if download_ratings.status() == "error" else "Loading the daily ratings…")
         meta = current.iloc[0]
         season = int(meta["season"])
         expected = int(meta["expected_games"])
@@ -161,7 +169,6 @@ def ratings_tab_server(input, session):
             ui.p(
                 f"{labels[mode]} through {projections[f'{mode}_through']}"
             ) if projections else None,
-            ui.p("Refresh failed. Showing the last loaded snapshot.") if error.get() else None,
         )
 
     @reactive.calc
