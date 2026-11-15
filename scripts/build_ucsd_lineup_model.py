@@ -1,12 +1,9 @@
 """Build the data file behind the UCSD 2026-27 Lineup Predictor tab.
 
-Every number the predictor tab shows (player ratings, the offensive-rating
-formula, conference-strength deltas, roster membership) is derived here from
-the same source CSVs the rest of the dashboard uses (all pulled from
-Barttorvik) -- nothing in the tab is hand-typed. Re-run this script whenever
-mbb_with_pca_all_players_2026_with_pbp.csv or transfer_portal_cache.csv are
-refreshed (the existing scheduled GitHub Actions already update those) to
-regenerate www/ucsd_model_data.json with current numbers.
+Build the recruiting inputs consumed by the lineup page from the dashboard’s
+Bart Torvik and transfer portal CSVs. The lineup page also uses Aaron’s roster
+and the separate Ratings forecast snapshot. The scheduled lineup model workflow
+runs this builder and publishes www/lineup/ucsd_model_data.json.
 
 Usage: python scripts/build_ucsd_lineup_model.py
 """
@@ -23,7 +20,7 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent.parent
 D1_PATH = HERE / "mbb_with_pca_all_players_2026_with_pbp.csv"
 TRANSFER_PATH = HERE / "transfer_portal_cache.csv"
-OUT_PATH = HERE / "www" / "ucsd_model_data.json"
+OUT_PATH = HERE / "www" / "lineup" / "ucsd_model_data.json"
 
 TEAM = "UC San Diego"
 CONF = "BW"

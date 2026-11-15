@@ -14,6 +14,7 @@ import sys
 from .projection_keys import name_key
 
 SNAPSHOT_PATH = Path(__file__).with_name("player_projections.json")
+WCC_SNAPSHOT_NAME = "ucsd_wcc_forecast.json"
 SEASON = 2027
 PERCENT_STATS = {"three", "two", "ft", "ast", "orb", "drb", "usage", "personal_tov", "share"}
 RATIO_STATS = {"ftr"}
@@ -32,6 +33,31 @@ def write_roster(path, rows):
         writer = csv.DictWriter(output, fieldnames=["player_id", "destination_team", "destination_conf"])
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_wcc_snapshot(path, rows, forecast_date, data_through, snapshot):
+    """Save the same-roster forecast with only the destination conference changed."""
+    expected = set(snapshot["names"].get("UC San Diego", {}).values())
+    allowed_stats = {stat["key"] for stat in snapshot["stats"]}
+    players = defaultdict(dict)
+    for row in rows:
+        pid, stat = int(row["player_id"]), row["stat"]
+        if (pid not in expected or row["destination_team"] != "UC San Diego"
+                or row["date"] != forecast_date.isoformat()
+                or row["data_through_date"] != (forecast_date - timedelta(days=1)).isoformat()
+                or stat not in allowed_stats or stat in players[pid]):
+            raise ValueError(f"Unexpected WCC forecast row for {pid}, {stat}")
+        value = float(row["dynamic"]) if row["dynamic"] else None
+        if value is not None and (not math.isfinite(value) or value < 0
+                                  or (stat in PERCENT_STATS and value > 1)):
+            raise ValueError(f"Invalid WCC forecast for {pid}, {stat}")
+        players[pid][stat] = value
+    if set(players) != expected or any(set(values) != allowed_stats for values in players.values()):
+        raise ValueError("Incomplete WCC forecast")
+    payload = {"season": snapshot["season"], "through": data_through.isoformat(), "players": players}
+    draft = path.with_suffix(".tmp")
+    draft.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    draft.replace(path)
 
 
 def main():
@@ -220,6 +246,21 @@ def main():
                    else "ratio" if stat in RATIO_STATS else "per100"} for stat in ALL_STATS],
         "players": ratings_players, "names": ratings_names,
     }
+    ucsd_ids = set(ratings_names.get("UC San Diego", {}).values())
+    if ucsd_ids:
+        wcc_roster_path = audit / "ucsd_wcc_roster.csv"
+        wcc_forecast_path = audit / "ucsd_wcc_player_skills.csv"
+        write_roster(wcc_roster_path, [
+            {**row, "destination_conf": "WCC"} for row in roster_rows if row["player_id"] in ucsd_ids
+        ])
+        subprocess.run([
+            sys.executable, "scripts/live_player_skills.py", "forecast",
+            "--roster", str(wcc_roster_path), "--games", str(games_path),
+            "--settings", "outputs/live_player_skills_v2/settings.json",
+            "--date", args.date.isoformat(), "--output", str(wcc_forecast_path),
+        ], cwd=workspace, check=True)
+        write_wcc_snapshot(args.output.with_name(WCC_SNAPSHOT_NAME), csv_rows(wcc_forecast_path),
+                           args.date, data_through, payload)
     draft = args.output.with_suffix(".tmp")
     draft.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n",
                      encoding="utf-8")
