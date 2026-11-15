@@ -53,7 +53,8 @@ def bounded_team_average(values, minutes):
     return np.clip(values + shift, 1, 5)
 
 
-def calculate_team_bpm(stats, minutes, possessions, league_points_per_shot, team_rating):
+def calculate_team_bpm(stats, minutes, possessions, league_points_per_shot, team_rating,
+                       listed_positions=3.0):
     """Allocate a team's adjusted net rating across its players."""
     fraction = 5 * minutes / minutes.sum()
 
@@ -70,7 +71,8 @@ def calculate_team_bpm(stats, minutes, possessions, league_points_per_shot, team
                 - 2.486 * share(stats["steals"]) + 0.992 * share(stats["fouls"])
                 - 3.536 * share(stats["assists"]) + 1.667 * share(stats["blocks"]))
     role = 6.0 - 6.642 * share(stats["assists"]) - 8.544 * share(threshold_points)
-    position = bounded_team_average((position * minutes + 50 * 3.0) / (minutes + 50), minutes)
+    position = bounded_team_average((position * minutes + 50 * listed_positions) / (minutes + 50),
+                                    minutes)
     role = bounded_team_average((role * minutes + 50 * 4.0) / (minutes + 50), minutes)
     position_weight = (position - 1) / 4
     shot_cost = -0.560 - 0.220 * (role - 1) / 4
@@ -135,7 +137,8 @@ def restore_mikalauskas(sides, player_id):
     arlington.append(player)
 
 
-def season_bpm(game_rows, season, cutoff, *, include_box_id=False):
+def season_bpm(game_rows, season, cutoff, *, include_box_id=False, listed_positions=None):
+    listed_positions = listed_positions or {}
     games = defaultdict(lambda: defaultdict(list))
     mikalauskas_id = "ncaa:11641617"
     for row in game_rows:
@@ -213,7 +216,10 @@ def season_bpm(game_rows, season, cutoff, *, include_box_id=False):
         possessions = np.array([p["possessions"] for p in players.values()])
         stats = {stat: np.array([p[stat] for p in players.values()])
                  for stat in (*BOX_COLUMNS, "fga")}
-        bpm = calculate_team_bpm(stats, minutes, possessions, points_per_shot, ratings[team])
+        position_priors = np.array([listed_positions.get((team, player_id), 3.0)
+                                    for player_id in players])
+        bpm = calculate_team_bpm(stats, minutes, possessions, points_per_shot, ratings[team],
+                                 position_priors)
         for i, (player_id, counts) in enumerate(players.items()):
             result[player_id, team] = {
                 "player_name": names[team, player_id], "team": team,

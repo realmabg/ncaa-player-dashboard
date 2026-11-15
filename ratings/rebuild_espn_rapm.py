@@ -45,6 +45,72 @@ SOURCE_NOTES = {
                   "game box. He is included in the replay based on the substitutions.",
                   "https://hawaiiathletics.com/boxscore.aspx?id=31831&path=mbball"),
 }
+# School box scores round these independently verified replay times.
+VERIFIED_REPLAY_MINUTES = {
+    "401911239": ("https://richmondspiders.com/sports/mens-basketball/stats/2026-27/southern-illinois/boxscore/12124",
+                  {"Sam Simmons Jr.": 9, "Brock McClure": 2}),
+    "401921086": ("https://umbcretrievers.com/sports/mens-basketball/stats/2026-27/morgan-state-university/boxscore/9692",
+                  {"Manok Lual": 3, "Matar Wade": 2}),
+}
+ESPN_NAME_VARIANTS = {
+    # Same-team aliases checked against roster jerseys and Torvik game boxes.
+    ("2065", "Daniel Perez-Rouzan"): ("12156694", "23", 76244),
+    ("2514", "Mike Parrotta"): ("12157957", "24", 145562),
+    ("2115", "Daniel James"): ("11485090", "22", None),
+    ("2115", "Matt Goodwin"): ("11938443", "6", 144161),
+    ("2916", "Mekhi Conner"): ("12148839", "3", 144871),
+    ("324", "Q Williams IV"): ("12146992", "4", 144738),
+    ("2378", "JP Ndong"): ("11956726", "2", 144524),
+    ("2771", "AJ Lesburt Jr."): ("11634490", "33", 77331),
+    ("2771", "Elijah Wilborn"): ("11634485", "5", 78112),
+    ("2771", "JP Skoric"): ("11634487", "10", 143923),
+    ("2771", "Jacob Moore"): ("11484845", "14", 134306),
+    ("2350", "Chris Jeffrey"): ("12151259", "6", 134243),
+    ("2350", "Nic Anderson"): ("11482008", "8", 134120),
+    ("2698", "Lou Hutchinson III"): ("12148075", "24", 76872),
+    ("36", "Pops Dunson"): ("11565248", "2", 143749),
+    ("70", "Mo Diao"): ("12149782", "34", 144934),
+    ("70", "Will Jenson"): ("11476748", "32", 134466),
+    ("2441", "Andy Ramirez"): ("11591223", "22", 143849),
+    ("2441", "Brad Ballinger"): ("11591219", "25", 143846),
+    ("2569", "Chris Parker"): ("11481808", "55", 135166),
+    ("140", "Josh Kori"): ("12154180", "7", 145372),
+    ("2572", "Max Blank"): ("11949413", "49", 144251),
+    ("2572", "Mike Montano"): ("11949419", "6", 144256),
+    ("2640", "Ahmed Nedal"): ("11474386", "9", 134870),
+    ("2640", "Ben Vungo"): ("12158490", "5", 79465),
+    ("2640", "Trey Lewis"): ("12340852", "12", 145638),
+    ("2710", "Tayelor Moore"): ("12158056", "5", 145579),
+    ("2320", "Mike Collins"): ("12148395", "7", 134643),
+    ("2166", "JaQualon Roberts"): ("11482014", "24", 77890),
+    ("2415", "Khali Horton"): ("11956116", "7", 79085),
+    ("315", "Tae Blackshear"): ("11638289", "77", 133820),
+    ("25", "Semetri Carr"): ("11471986", "3", 135006),
+    ("399", "Zacharie Matulu"): ("11481537", "14", 79205),
+    ("257", "Sam Simmons Jr."): ("12151923", "2", 145134),
+    ("2400", "Tianhao Wu"): ("12151613", "9", 145098),
+    ("264", "BJ Roy"): ("11471842", "3", 135113),
+    ("140", "DJ Jackson Jr."): ("12154162", "1", 145366),
+    ("294", "Sam Mbingazo"): ("11592282", "35", 143865),
+    ("127", "Cam Ward"): ("11471652", "3", 134374),
+    ("339", "JR Kemm"): ("12151551", "5", 145087),
+    ("94", "Juanma Ruiz"): ("11480811", "17", 134669),
+    ("2737", "Anthony Smith III"): ("11939132", "3", 134952),
+    ("2737", "Eesher Singh Sarai"): ("12153191", "6", 145291),
+    ("2534", "Cheikh Sadibou Ndiaye"): ("11478497", "32", 128265),
+    ("2502", "Gantas Krianauskas"): ("12149647", "22", 144919),
+    ("2502", "Emil Skytt"): ("12149653", "8", 76032),
+    ("249", "Cash Chavis"): ("12151866", "1", 126524),
+    # https://fgcuathletics.com/sports/mens-basketball/roster/2026-27
+    ("526", "BB Washington"): ("11479253", "8", None),
+    ("526", "CJ Outlaw"): ("11593006", "45", None),
+    # https://ucasports.com/roster.aspx?path=mbball&season=2026-27
+    ("2110", "Harry Beauchamp"): ("11475344", "9", None),
+    ("2110", "J.C. Shulman"): ("11475506", "4", None),
+    ("2110", "R.J. Young"): ("12148184", "0", None),
+    ("2110", "Simm-Marten Saadi"): ("12148179", "35", None),
+}
+ESPN_ROSTER_JERSEYS = {"11474386": "7", "11478497": "23"}
 SHOT_CORRECTIONS = {
     "401924911": (1, 223, "5308449", "5108047"),
     "401920371": (2, 519, "5107287", "5106867"),
@@ -349,55 +415,6 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
     roster_by_id = {(row["team_id"], row["player_id"]): row for row in roster}
     for (team, name), (player, _) in MISSING_ROSTER_PLAYERS.items():
         ncaa_players.setdefault((team, key(name)), player)
-    name_variants = {
-        # Same-team aliases checked against roster jerseys and Torvik game boxes.
-        ("2065", "Daniel Perez-Rouzan"): ("12156694", "23", 76244),
-        ("2514", "Mike Parrotta"): ("12157957", "24", 145562),
-        ("2115", "Matt Goodwin"): ("11938443", "6", 144161),
-        ("2916", "Mekhi Conner"): ("12148839", "3", 144871),
-        ("324", "Q Williams IV"): ("12146992", "4", 144738),
-        ("2378", "JP Ndong"): ("11956726", "2", 144524),
-        ("2771", "AJ Lesburt Jr."): ("11634490", "33", 77331),
-        ("2771", "Elijah Wilborn"): ("11634485", "5", 78112),
-        ("2771", "JP Skoric"): ("11634487", "10", 143923),
-        ("2771", "Jacob Moore"): ("11484845", "14", 134306),
-        ("2350", "Chris Jeffrey"): ("12151259", "6", 134243),
-        ("2350", "Nic Anderson"): ("11482008", "8", 134120),
-        ("2698", "Lou Hutchinson III"): ("12148075", "24", 76872),
-        ("36", "Pops Dunson"): ("11565248", "2", 143749),
-        ("70", "Mo Diao"): ("12149782", "34", 144934),
-        ("70", "Will Jenson"): ("11476748", "32", 134466),
-        ("2441", "Andy Ramirez"): ("11591223", "22", 143849),
-        ("2441", "Brad Ballinger"): ("11591219", "25", 143846),
-        ("2569", "Chris Parker"): ("11481808", "55", 135166),
-        ("140", "Josh Kori"): ("12154180", "7", 145372),
-        ("2572", "Max Blank"): ("11949413", "49", 144251),
-        ("2572", "Mike Montano"): ("11949419", "6", 144256),
-        ("2640", "Ahmed Nedal"): ("11474386", "9", 134870),
-        ("2640", "Ben Vungo"): ("12158490", "5", 79465),
-        ("2640", "Trey Lewis"): ("12340852", "12", 145638),
-        ("2710", "Tayelor Moore"): ("12158056", "5", 145579),
-        ("2320", "Mike Collins"): ("12148395", "7", 134643),
-        ("2166", "JaQualon Roberts"): ("11482014", "24", 77890),
-        ("2415", "Khali Horton"): ("11956116", "7", 79085),
-        ("315", "Tae Blackshear"): ("11638289", "77", 133820),
-        ("25", "Semetri Carr"): ("11471986", "3", 135006),
-        ("399", "Zacharie Matulu"): ("11481537", "14", 79205),
-        ("257", "Sam Simmons Jr."): ("12151923", "2", 145134),
-        ("2400", "Tianhao Wu"): ("12151613", "9", 145098),
-        ("264", "BJ Roy"): ("11471842", "3", 135113),
-        ("140", "DJ Jackson Jr."): ("12154162", "1", 145366),
-        ("294", "Sam Mbingazo"): ("11592282", "35", 143865),
-        ("127", "Cam Ward"): ("11471652", "3", 134374),
-        ("339", "JR Kemm"): ("12151551", "5", 145087),
-        ("94", "Juanma Ruiz"): ("11480811", "17", 134669),
-        ("2737", "Anthony Smith III"): ("11939132", "3", 134952),
-        ("2737", "Eesher Singh Sarai"): ("12153191", "6", 145291),
-        ("2534", "Cheikh Sadibou Ndiaye"): ("11478497", "32", 128265),
-        ("2502", "Gantas Krianauskas"): ("12149647", "22", 144919),
-        ("2502", "Emil Skytt"): ("12149653", "8", 76032),
-        ("249", "Cash Chavis"): ("12151866", "1", 126524),
-    }
     box_games = defaultdict(dict)
     for row in game_logs(inputs, season, False) if use_torvik else ():
         box_games[row[0], row[47], row[5]][key(row[48])] = row
@@ -451,12 +468,12 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
                 if event == "401918987" and pk == "sebaswilliamsadams":
                     box = box_by_id[club].get(134430)
                     target = ncaa_players.get((team_ids[club], key("Sebastian Williams-Adams")))
-                variant = name_variants.get((club, name))
+                variant = ESPN_NAME_VARIANTS.get((club, name))
                 if variant:
                     target, source_jersey, box_id = variant
                     box = box_by_id[club].get(box_id)
                     roster_row = roster_by_id.get((team_ids[club], target))
-                    official_jersey = {"11474386": "7", "11478497": "23"}.get(target, source_jersey)
+                    official_jersey = ESPN_ROSTER_JERSEYS.get(target, source_jersey)
                     if jersey != source_jersey or not roster_row or roster_row["jersey"] != official_jersey:
                         raise ValueError(f"Roster jersey mismatch for {name}")
                 if target is None:
@@ -471,16 +488,26 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
                 if use_torvik and box is None and (source_points or (actual > 1 and target)):
                     raise ValueError(f"Missing player box for {name}")
                 diff = None if box is None else round(actual - float(box[8]), 3)
-                discrepancies.append((round(actual - source_minutes, 3), diff, name))
+                discrepancies.append((round(actual - source_minutes, 3), diff, name, actual))
             report["reconstructed"] = len(observations)
             report["technical_points"] = sum(tech.values())
             report["non_five_player_seconds"] = bad_seconds
             report["actor_conflicts"] = sum(actor_errors.values())
             report["source_max_minute_error"] = max(abs(row[0]) for row in discrepancies)
             report["torvik_max_minute_error"] = max((abs(row[1]) for row in discrepancies if row[1] is not None), default=None)
+            school_url, school_minutes = VERIFIED_REPLAY_MINUTES.get(event, (None, {}))
+            timing_disputes = [
+                (source_diff, box_diff, name)
+                for source_diff, box_diff, name, actual in discrepancies
+                if abs(source_diff if box_diff is None else box_diff) > 1
+                and (name not in school_minutes or abs(actual - school_minutes[name]) > 0.5)
+            ]
+            if school_url and not timing_disputes:
+                report["source_review"] = "Official school box corroborates disputed replay minutes"
+                report["review_source_url"] = school_url
             report["minute_review"] = "; ".join(
                 f"{name} ({source_diff:+.2f} source, {box_diff if box_diff is not None else 'unavailable'} Torvik)"
-                for source_diff, box_diff, name in discrepancies if abs(source_diff if box_diff is None else box_diff) > 1
+                for source_diff, box_diff, name in timing_disputes
             )
             counts = Counter(owner for _, owner, _, _, _ in observations)
             report["home_possessions"] = counts[teams["home"]]

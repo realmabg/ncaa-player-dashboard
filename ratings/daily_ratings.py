@@ -3,23 +3,38 @@ import argparse
 import csv
 import hashlib
 import json
+from math import floor
 import os
 import tempfile
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from itertools import chain
 from pathlib import Path
 from uuid import uuid4
 
 from box_plus_minus import BOX_COLUMNS, complete_team_box, season_bpm
 from daily_rapm import ESPN, PACIFIC, espn_scoreboards, fetch_json, recover_espn
-from player_ratings import (FEEDS, RELEASES, ROOT, download, feed_rows,
-                            key, lineup_ratings, ncaa_date, solve_rapm, unique)
-from rapm_repairs import expected_score
+from player_ratings import (FEEDS, RAPM_HALF_LIFE_DAYS, RELEASES, ROOT, download, feed_rows,
+                            key, lineup_ratings, ncaa_date, rapm_game_weight, solve_rapm, unique)
+from rapm_repairs import MISSING_ROSTER_PLAYERS, expected_score
+from rebuild_espn_rapm import ESPN_NAME_VARIANTS, ESPN_ROSTER_JERSEYS, espn_game, replay
 import ratings_store as store
 
+# Increment INPUT_RULES_VERSION when validation, source selection or curated
+# corrections change. The next successful run revalidates stored games.
+INPUT_RULES_VERSION = 2
+MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
+                 f"+inputs-v{INPUT_RULES_VERSION}")
+
 NCAA = "https://stats.ncaa.org/contests"
+# The NCAA catalog carries an old and a corrected contest for this game.
+SUPERSEDED_CONTESTS = {"6638547": ("6670672", "401920378")}
 VERIFIED_FINALS = {
+    "401920887": ({"627454": 62, "627586": 68},
+                  "https://shupirates.com/sports/mens-basketball/stats/2026-27/charlotte/boxscore/11645"),
+    "401925631": ({"627479": 54, "627295": 56},
+                  "https://bradleybraves.com/boxscore.aspx?id=23039&path=mbball"),
     "401909694": ({"627521": 69, "627524": 113},
                   "https://seminoles.com/sports/mens-basketball/stats/2026/florida-am/boxscore/16827"),
     "401920378": ({"627235": 88, "627342": 93},
@@ -28,6 +43,88 @@ VERIFIED_FINALS = {
 BOX_FIELDS = dict(two_made="fgm", two_attempts="fga", threes="tpm", three_attempts="tpa",
                   free_throws="ftm", fta="fta", points="pts", orb="orb", drb="drb",
                   assists="ast", turnovers="tov", steals="stl", blocks="blk", fouls="pf")
+# Exact provider tags for players verified by team and jersey.
+NCAA_BOX_ALIASES = {
+    ("627449", "KHALI.HORTON"): "11956116",
+    ("627467", "DANIEL.JAMES"): "11485090",
+    ("627563", "SAM.SIMMONS"): "12151923",
+}
+MINUTES_COLUMN = 8
+BOX_VOTE_COLUMNS = dict(BOX_COLUMNS, minutes=MINUTES_COLUMN)
+# Verified final stints that the box scores rounded to zero or omitted.
+FINAL_STINT_SECONDS = {
+    "401925684": {"11474138": 8},
+    "401909552": {"11479050": 12, "12154750": 12, "12154773": 12},
+    "401920680": {"11480061": 21},
+    "401920305": {"11956578": 28},
+    "401909716": {"11481290": 17, "11484106": 17},
+    "401909490": {"11477163": 14},
+    "401909553": {"11473671": 29, "12154771": 29},
+}
+# Each entry records the disputed fields checked against a school game book.
+SCHOOL_BOX_EVIDENCE = {
+    "401927369": (
+        "https://goblueraiders.com/news/2026/11/11/mens-basketball-blue-raiders-get-back-on-track-with-73-68-defeat-of-evansville",
+        {"11471618": {"assists": 5}},
+    ),
+    "401925940": (
+        "https://utahstateaggies.com/sports/mens-basketball/stats/2026-27/utah-tech/boxscore/16847",
+        {"12153060": {"turnovers": 0}, "11472119": {"turnovers": 0}},
+    ),
+    "401928794": (
+        "https://pepperdinewaves.com/sports/mens-basketball/stats/2026/sam-houston/boxscore/16850",
+        {"11481211": {"minutes": 20}},
+    ),
+    "401917524": (
+        "https://lmulions.com/sports/mens-basketball/stats/2026-27/south-alabama/boxscore/17969",
+        {"12154705": {"minutes": 2}, "11644911": {"minutes": 24},
+         "11644936": {"minutes": 22}},
+    ),
+    "401919041": (
+        "https://okstate.com/sports/mens-basketball/stats/2026-27/texas-am/boxscore/17598",
+        {"11645534": {"minutes": 11}},
+    ),
+    "401920064": (
+        "https://gorhody.com/sports/mens-basketball/stats/2026-27/maryland-eastern-shore/boxscore/12014",
+        {"11481744": {"minutes": 17}},
+    ),
+    "401906770": (
+        "https://floridagators.com/documents/download/2026/11/9/2026.11.10_atFloridaState.pdf",
+        {"11472071": {"minutes": 16.5}},
+    ),
+    "401910994": (
+        "https://bgsufalcons.com/sports/mens-basketball/stats/2026-27/georgia-state/boxscore/25167",
+        {"11949562": {"minutes": 27}},
+    ),
+    "401928996": (
+        "https://valpoathletics.com/boxscore.aspx?id=13220&path=mbball",
+        {"11476962": {"minutes": 36}},
+    ),
+    "401921174": (
+        "https://utmsports.com/sports/mens-basketball/stats/2026-27/iu-indy/boxscore/13870",
+        {"11473125": {"minutes": 22}},
+    ),
+    "401921175": (
+        "https://iuindyjags.com/sports/mens-basketball/stats/2026-2027/southern-indiana/boxscore/17460",
+        {"11564819": {"minutes": 11}},
+    ),
+    "401920692": (
+        "https://gobobcats.com/sports/mens-basketball/stats/2026/vermont/boxscore/23634",
+        {"12145104": {"minutes": 4}},
+    ),
+    "401920842": (
+        "https://gobluehose.com/sports/mens-basketball/stats/2026-27/st-thomas/boxscore/14480",
+        {"11476335": {"minutes": 17}},
+    ),
+    "401922248": (
+        "https://fiusports.com/boxscore.aspx?id=15628&path=mbball",
+        {"11565135": {"minutes": 29}},
+    ),
+    "401924743": (
+        "https://yalebulldogs.com/sports/mens-basketball/stats/2026-27/howard/boxscore/21527",
+        {"11475873": {"three_attempts": 9}, "11481741": {"three_attempts": 2}},
+    ),
+}
 
 
 def matchup(played, home, away):
@@ -65,7 +162,12 @@ def catalog(inputs, scratch, season, cutoff, dates, previous):
         if event:
             ids[f"espn:{event}"] = pair
 
-    for row in feed_rows(inputs, "schedule", season):
+    schedule = list(feed_rows(inputs, "schedule", season))
+    final_contests = {r["contest_id"] for r in schedule
+                      if all(r[f"{side}_score"].isdigit() for side in ("home", "away"))}
+    for original, (replacement, espn) in SUPERSEDED_CONTESTS.items():
+        events[original] = events[replacement] = espn
+    for row in schedule:
         played = ncaa_date(row["game_date"])
         if played not in dates or not all(row[f"{side}_score"].isdigit() for side in ("home", "away")):
             continue
@@ -73,6 +175,8 @@ def catalog(inputs, scratch, season, cutoff, dates, previous):
         if not home or not away or home == away:
             continue
         ncaa = row["contest_id"]
+        if ncaa in SUPERSEDED_CONTESTS and SUPERSEDED_CONTESTS[ncaa][0] in final_contests:
+            continue
         remember(played, home, away, expected_score(ncaa, row), "ncaa", ncaa,
                  f"{NCAA}/{ncaa}/box_score", events.get(ncaa))
 
@@ -121,25 +225,40 @@ def box_row(game, tid, name, player, minutes, stats, neutral, teams):
     return row
 
 
+def roster_name_parts(name):
+    parts = name.split()
+    while parts and not key(parts[-1]):
+        parts.pop()
+    return parts
+
+
 def ncaa_box(game, rows, teams, neutral):
     result = []
     for raw in rows:
         team = raw["team_ncaa_team_id"]
         if team not in (game["home_team_id"], game["away_team_id"]):
             raise ValueError("NCAA box has an unresolved team")
-        if not raw["player_id"]:
+        tag = raw["player"]
+        reviewed_id, reviewed_name = MISSING_ROSTER_PLAYERS.get((team, tag), (None, None))
+        player = raw["player_id"] or NCAA_BOX_ALIASES.get((team, tag)) or reviewed_id
+        if not player:
             raise ValueError("NCAA box has an unresolved player")
         stats = {name: float(raw[field]) for name, field in BOX_FIELDS.items()}
         stats["two_made"] -= stats["threes"]
         stats["two_attempts"] -= stats["three_attempts"]
-        result.append(box_row(game, team, raw["clean_name"] or raw["player"], f"ncaa:{raw['player_id']}",
+        name = raw["clean_name"] or reviewed_name or tag
+        result.append(box_row(game, team, name, f"ncaa:{player}",
                               float(raw["mins"]), stats, neutral, teams))
     return result
 
 
-def espn_box(game, summary, teams, aliases, player_ids):
+def espn_box(game, summary, teams, aliases, player_ids, jersey_ids, reviewed_ids, replayed=None,
+             *, school_rows=()):
     result = []
     neutral = summary["header"]["competitions"][0]["neutralSite"]
+    school_ids = unique(
+        ((row["team_id"], key(row["name"])), row["player_id"]) for row in school_rows
+    )
     for block in summary["boxscore"]["players"]:
         team = aliases.get(block["team"]["id"])
         if team not in (game["home_team_id"], game["away_team_id"]):
@@ -149,8 +268,16 @@ def espn_box(game, summary, teams, aliases, player_ids):
                 if raw.get("didNotPlay") or not raw["stats"]:
                     continue
                 data = dict(zip(group["labels"], raw["stats"]))
-                name = raw["athlete"]["displayName"]
+                athlete = raw["athlete"]
+                name = athlete["displayName"]
                 player = player_ids.get((team, key(name)))
+                player = player or school_ids.get((team, key(name)))
+                jersey = athlete.get("jersey")
+                player = player or reviewed_ids.get((team, name, jersey))
+                if not player and jersey is not None:
+                    parts = roster_name_parts(name)
+                    if len(parts) > 1:
+                        player = jersey_ids.get((team, jersey, key(parts[-1]), key(parts[0])[:1]))
                 if not player:
                     raise ValueError(f"ESPN box player {name} has no unique NCAA roster ID")
                 fg, fga = map(int, data["FG"].split("-"))
@@ -164,6 +291,8 @@ def espn_box(game, summary, teams, aliases, player_ids):
                     stats[name_key] = int(data[label])
                 parts = data["MIN"].split(":")
                 minutes = float(parts[0]) + (float(parts[1]) / 60 if len(parts) == 2 else 0)
+                if replayed is not None:
+                    minutes = replayed.get((block["team"]["id"], athlete["id"]), 0)
                 result.append(box_row(game, team, name, f"ncaa:{player}", minutes, stats, neutral, teams))
     return result
 
@@ -184,8 +313,72 @@ def valid_box(rows, game, teams):
     return sorted(rows, key=lambda r: (r[47], str(r[51])))
 
 
-def box_conflicts(first, second):
-    a, b = ({(r[47], r[51]): r for r in rows if r[8] > 0} for rows in (first, second))
+def load_school_boxes(season):
+    boxes = defaultdict(list)
+    path = ROOT / f"bpm_school_boxes_{season}.csv"
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as source:
+            for row in csv.DictReader(source):
+                boxes[row["event"]].append(row)
+    return boxes
+
+
+def school_box(game, rows, teams, neutral):
+    box = [
+        box_row(game, row["team_id"], row["name"], f"ncaa:{row['player_id']}",
+                float(row["minutes"]), {stat: int(row[stat]) for stat in BOX_COLUMNS}, neutral, teams)
+        for row in rows
+    ]
+    return valid_box(box, game, teams)
+
+
+def restore_final_stints(rows, event, observations, roster, game, teams, neutral):
+    stints = FINAL_STINT_SECONDS.get(event)
+    if not stints or not observations:
+        return rows, {}
+    lineups = {player for _, _, lineup, _ in observations for player in lineup}
+    by_id = {row[51]: index for index, row in enumerate(rows)}
+    updated = rows.copy()
+    restored = {}
+    for team, player in sorted(lineups):
+        if player not in stints:
+            continue
+        pid = f"ncaa:{player}"
+        index = by_id.get(pid)
+        if index is not None and rows[index][MINUTES_COLUMN] > 0:
+            continue
+        seconds = stints[player]
+        if index is None:
+            updated.append(box_row(game, team, roster[team, player], pid, seconds / 60,
+                                   dict.fromkeys(BOX_COLUMNS, 0), neutral, teams))
+        else:
+            updated[index] = rows[index].copy()
+            updated[index][MINUTES_COLUMN] = seconds / 60
+        restored[player] = seconds
+    return valid_box(updated, game, teams), restored
+
+
+def school_minutes_with_feed_counts(official, candidates, game, teams):
+    """Use the agreed feed counts when only the school minutes are needed."""
+    ncaa, espn = candidates.get("ncaa"), candidates.get("espn")
+    if not ncaa or not espn or box_conflicts(ncaa, espn, compare_minutes=False):
+        raise ValueError("No feed corroborates all school counting stats")
+    by_player = {(row[47], row[51]): row for row in ncaa}
+    official_players = {(row[47], row[51]) for row in official}
+    active = {player for player, row in by_player.items() if row[8] > 0}
+    if not active <= official_players or not official_players <= by_player.keys():
+        raise ValueError("School box and feeds have different player rows")
+    resolved = []
+    for row in official:
+        count_row = by_player[row[47], row[51]].copy()
+        count_row[MINUTES_COLUMN] = row[MINUTES_COLUMN]
+        resolved.append(count_row)
+    return valid_box(resolved, game, teams)
+
+
+def box_conflicts(first, second, *, compare_minutes=True):
+    a, b = ({(r[47], r[51]): r for r in rows if r[8] > 0 or any(r[c] for c in BOX_COLUMNS.values())}
+            for rows in (first, second))
     conflicts = []
     for player in sorted(a.keys() | b.keys()):
         if player not in a or player not in b:
@@ -194,12 +387,73 @@ def box_conflicts(first, second):
                 continue
             conflicts.append(f"{row[48]} is missing from one box")
             continue
-        differences = [stat for stat, column in BOX_COLUMNS.items() if a[player][column] != b[player][column]]
-        if abs(a[player][8] - b[player][8]) > 1:
-            differences.append("minutes")
+        columns = BOX_VOTE_COLUMNS if compare_minutes else BOX_COLUMNS
+        differences = [stat for stat, column in columns.items()
+                       if not box_values_agree(stat, a[player][column], b[player][column])]
         if differences:
             conflicts.append(f"{a[player][48]} differs in {', '.join(differences)}")
     return conflicts
+
+
+def box_values_agree(stat, first, second):
+    return abs(first - second) <= 1 if stat == "minutes" else first == second
+
+
+def school_vote_agrees(stat, feed, school):
+    if stat == "minutes":
+        # Whole-minute reports can corroborate a precise time at their precision.
+        if float(feed).is_integer() or float(school).is_integer():
+            return floor(feed + 0.5) == floor(school + 0.5)
+        return abs(feed - school) <= 1 / 60
+    return feed == school
+
+
+def majority_box(ncaa_rows, espn_rows, school_values):
+    """Resolve disputed fields with two agreeing sources and preserve the vote."""
+    if any(detail.endswith(" is missing from one box") for detail in box_conflicts(ncaa_rows, espn_rows)):
+        raise ValueError("Source vote cannot establish the player rows")
+    espn = {(row[47], row[51]): row for row in espn_rows if row[8] > 0}
+    resolved, votes = [], []
+    for row in ncaa_rows:
+        selected = row.copy()
+        other = espn.get((row[47], row[51]))
+        if row[8] > 0 and other is not None:
+            player = row[51].removeprefix("ncaa:")
+            for stat, column in BOX_VOTE_COLUMNS.items():
+                ncaa, reported = row[column], other[column]
+                if box_values_agree(stat, ncaa, reported):
+                    continue
+                school = school_values.get(player, {}).get(stat)
+                if school is None:
+                    raise ValueError(f"No third-source value for {row[48]}: {stat}")
+                supports_ncaa = school_vote_agrees(stat, ncaa, school)
+                supports_espn = school_vote_agrees(stat, reported, school)
+                if supports_ncaa == supports_espn:
+                    raise ValueError(f"No unique majority for {row[48]}: {stat}")
+                selected[column] = ncaa if supports_ncaa else reported
+                votes.append(dict(player_id=player, stat=stat, ncaa=ncaa, espn=reported,
+                                  official_school=school, selected=selected[column],
+                                  supported_source="ncaa" if supports_ncaa else "espn"))
+        resolved.append(selected)
+    # Keep the complete box when the votes all support the same feed.
+    if votes and all(vote["supported_source"] == "espn" for vote in votes):
+        return espn_rows, votes
+    return resolved, votes
+
+
+def replay_minutes(summary, event):
+    _, final, players, plays = espn_game(summary, event)
+    competitors = summary["header"]["competitions"][0]["competitors"]
+    periods = {len(team.get("linescores", [])) for team in competitors}
+    if len(periods) != 1 or min(periods) < 2:
+        raise ValueError("Cannot verify the number of periods")
+    expected = set(range(1, min(periods) + 1))
+    if {p.period for p in plays} != expected or {p.period for p in plays if p.kind == "end" and p.clock == 0} != expected:
+        raise ValueError("Play-by-play does not cover every period")
+    _, minutes, bad_seconds, actor_errors, _ = replay(plays, players, final)
+    if bad_seconds or actor_errors:
+        raise ValueError("Substitutions do not establish playing time throughout the game")
+    return minutes
 
 
 def decision(rows, evidence, stamp, *, reason=None, excluded=0, review=False):
@@ -216,6 +470,7 @@ def decision(rows, evidence, stamp, *, reason=None, excluded=0, review=False):
 
 
 def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
+    school_boxes = load_school_boxes(season)
     teams, raw, games, sources, scores, known, ids, aliases = catalog(
         inputs, scratch, season, cutoff, dates, previous)
     ncaa_rows = defaultdict(list)
@@ -245,7 +500,24 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
 
     status = {}
     roster, _ = lineup_ratings(inputs, season, cutoff, status, game_observer=remember, fit=False)
-    player_ids = unique(((team, key(name)), pid) for (team, pid), name in roster.items())
+    roster_rows = [r for r in feed_rows(inputs, "team_rosters", season) if r["player_id"]]
+    roster_names = ((r, name) for r in roster_rows for name in (r["name"], r["clean_name"], r["player"]) if name)
+    player_ids = unique(chain(
+        (((team, key(name)), pid) for (team, pid), name in roster.items()),
+        (((r["team_id"], key(name)), r["player_id"]) for r, name in roster_names),
+    ))
+    jersey_ids = unique(
+        ((r["team_id"], r["jersey"], key(parts[-1]), key(parts[0])[:1]), r["player_id"])
+        for r in roster_rows if r["jersey"].isdigit()
+        for parts in (roster_name_parts(r["name"]), roster_name_parts(r["clean_name"])) if len(parts) > 1
+    )
+    roster_by_id = {(r["team_id"], r["player_id"]): r for r in roster_rows}
+    reviewed_ids = {}
+    for (club, name), (player, espn_jersey, _) in ESPN_NAME_VARIANTS.items():
+        team = aliases.get(club)
+        official = roster_by_id.get((team, player))
+        if official and official["jersey"] == ESPN_ROSTER_JERSEYS.get(player, espn_jersey):
+            reviewed_ids[team, name, espn_jersey] = player
     def score_conflict(gid):
         finals = scores[gid]
         return "official_school" not in finals and len({tuple(sorted(s.items())) for s in finals.values()}) > 1
@@ -293,28 +565,131 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
         event = source_ids.get("espn")
         ncaa = source_ids.get("ncaa")
         summary, download_error = summaries.get(event, (None, None))
+        verified_rows = school_boxes.get(event, ())
         candidates, errors = {}, {}
+        unvalidated = {}
         neutral = venue_by_event.get(event)
         if summary:
-            neutral = summary["header"]["competitions"][0].get("neutralSite", neutral)
+            competition = summary["header"]["competitions"][0]
+            neutral = competition.get("neutralSite", neutral)
+            game_aliases = dict(aliases)
+            if verified_rows:
+                # The catalog already matched the ESPN sides for this event.
+                for side in competition["competitors"]:
+                    game_aliases.setdefault(side["id"], game[f"{side['homeAway']}_team_id"])
             try:
-                candidates["espn"] = valid_box(espn_box(game, summary, teams, aliases, player_ids), game, teams)
+                unvalidated["espn"] = espn_box(game, summary, teams, game_aliases, player_ids,
+                                               jersey_ids, reviewed_ids, school_rows=verified_rows)
+                candidates["espn"] = valid_box(unvalidated["espn"], game, teams)
             except (KeyError, TypeError, ValueError) as error:
                 errors["espn"] = str(error)
         elif download_error:
             errors["espn"] = download_error
         if ncaa_rows.get(ncaa) and neutral is not None:
             try:
-                candidates["ncaa"] = valid_box(ncaa_box(game, ncaa_rows[ncaa], teams, neutral), game, teams)
+                unvalidated["ncaa"] = ncaa_box(game, ncaa_rows[ncaa], teams, neutral)
+                candidates["ncaa"] = valid_box(unvalidated["ncaa"], game, teams)
             except (KeyError, TypeError, ValueError) as error:
                 errors["ncaa"] = str(error)
         conflicts = box_conflicts(*candidates.values()) if len(candidates) == 2 else []
-        chosen = "ncaa" if "ncaa" in candidates else "espn"
+        reported_conflicts = conflicts
+        school = SCHOOL_BOX_EVIDENCE.get(event)
+        majority = None
+        if conflicts and school:
+            url, school_values = school
+            evidence["source_urls"] = sorted(set(evidence["source_urls"]) | {url})
+            sources[gid].append(dict(provider="official_school_box", provider_game_id=event, url=url))
+            try:
+                resolved, votes = majority_box(candidates["ncaa"], candidates["espn"], school_values)
+                candidates["source_majority"] = valid_box(resolved, game, teams)
+                majority = {"url": url, "votes": votes}
+                conflicts = []
+            except ValueError as error:
+                majority = {"url": url, "error": str(error)}
+        minutes_review = None
+        replay_used = False
+        if summary and neutral is not None and (conflicts or not candidates):
+            try:
+                played_minutes = replay_minutes(summary, event)
+                replayed_box = valid_box(
+                    espn_box(game, summary, teams, game_aliases, player_ids, jersey_ids, reviewed_ids,
+                             played_minutes, school_rows=verified_rows),
+                    game, teams)
+                ncaa_candidate = candidates.get("ncaa")
+                if not ncaa_candidate and ncaa_rows.get(ncaa):
+                    # A partial NCAA box may corroborate counting stats even if its minutes fail.
+                    raw_ncaa = ncaa_box(game, ncaa_rows[ncaa], teams, neutral)
+                    if box_conflicts(raw_ncaa, replayed_box, compare_minutes=False):
+                        raise ValueError("NCAA counting stats differ from the ESPN box")
+                if ncaa_candidate and box_conflicts(ncaa_candidate, replayed_box, compare_minutes=False):
+                    raise ValueError("Replayed box counting stats differ from the NCAA box")
+                if not ncaa_candidate or box_conflicts(ncaa_candidate, replayed_box):
+                    candidates["espn"] = replayed_box
+                    replay_used = True
+                minutes_review = "ESPN substitution replay validated the playing time"
+                conflicts = []
+            except (KeyError, TypeError, ValueError) as error:
+                minutes_review = str(error)
+        chosen = "ncaa" if "ncaa" in candidates and not replay_used else "espn"
+        if "source_majority" in candidates:
+            chosen = "source_majority"
+        school_review = None
+        if verified_rows and neutral is not None and (conflicts or not candidates):
+            url = verified_rows[0]["url"]
+            timing_sources = {row["minutes_source"] for row in verified_rows}
+            evidence["source_urls"] = sorted(set(evidence["source_urls"]) | {url} | timing_sources)
+            sources[gid].append(dict(provider="official_school_box", provider_game_id=event, url=url))
+            try:
+                official = school_box(game, verified_rows, teams, neutral)
+                agreeing = [source for source, rows in unvalidated.items()
+                            if not box_conflicts(official, rows, compare_minutes=False)]
+                school_review = {"url": url, "counting_stats_confirmed_by": agreeing}
+                if timing_sources != {url}:
+                    school_review["short_appearances"] = [
+                        {"player_id": row["player_id"], "minutes": float(row["minutes"]),
+                         "url": row["minutes_source"]}
+                        for row in verified_rows if row["minutes_source"] != url
+                    ]
+                if not agreeing:
+                    official = school_minutes_with_feed_counts(official, candidates, game, teams)
+                    school_review.update(counting_stats_confirmed_by=["ncaa", "espn"],
+                                         minutes_source="official_school_box",
+                                         school_counting_stats_disagree=True)
+                candidates["official_school_box"] = official
+                chosen = "official_school_box"
+                conflicts = []
+            except (KeyError, TypeError, ValueError) as error:
+                school_review = {"url": url, "error": str(error)}
         box_evidence = dict(evidence, box_sources=sorted(candidates), source_errors=errors, conflicts=conflicts)
+        if school_review:
+            box_evidence["school_box_review"] = school_review
+            box_evidence["reported_box_conflicts"] = reported_conflicts
+        if majority:
+            box_evidence["source_majority"] = majority
+            box_evidence["reported_box_conflicts"] = reported_conflicts
+        if minutes_review:
+            box_evidence["minutes_review"] = minutes_review
+            box_evidence["reported_box_conflicts"] = reported_conflicts
+        if replay_used:
+            box_evidence["minutes_source"] = "espn_play_by_play"
         if conflicts:
-            bpm = decision([], box_evidence, stamp, reason="Player box scores disagree", review=True)
+            # Both complete boxes already passed validation. Use the NCAA feed
+            # for ties, keeping the disagreement open for a later source vote.
+            bpm = decision(candidates["ncaa"], dict(box_evidence, selected="ncaa",
+                           selection_method="validated_source_default"), stamp,
+                           reason="Validated NCAA box used pending corroboration", review=True)
         elif chosen in candidates:
-            bpm = decision(candidates[chosen], dict(box_evidence, selected=chosen), stamp)
+            rows = candidates[chosen]
+            if event in FINAL_STINT_SECONDS and gid in observations:
+                try:
+                    rows, restored = restore_final_stints(
+                        rows, event, observations[gid][1], roster, game, teams, neutral)
+                    if restored:
+                        box_evidence["restored_stint_seconds"] = restored
+                        box_evidence["stint_source"] = f"https://www.espn.com/mens-college-basketball/playbyplay/_/gameId/{event}"
+                except ValueError as error:
+                    box_evidence["short_stint_error"] = str(error)
+            bpm = decision(rows, dict(box_evidence, selected=chosen), stamp)
         else:
             bpm = decision([], box_evidence, stamp, reason="No validated player box score and venue",
                            review=bool(errors) and not download_error)
@@ -336,7 +711,19 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
         yield game, sources[gid], dict(bpm=bpm, rapm=rapm)
 
 
-def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *, dry_run=False):
+def listed_bpm_positions(roster_rows, teams):
+    # Broad roster labels cover both guard spots and both forward spots.
+    positions = {"G": 1.5, "F": 3.5, "C": 5.0}
+    return unique(
+        ((teams[row["team_id"]], f'ncaa:{row["player_id"]}'), positions[label])
+        for row in roster_rows
+        if row["team_id"] in teams and row["player_id"] and
+        (label := row["position"].strip().upper()) in positions
+    )
+
+
+def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
+                    dry_run=False, listed_positions):
     dates = {g["game_key"]: g["game_date"] for g in games}
     expected = len(games)
     coverage = {m: dict(expected_games=expected, included_games=0, review_or_retry=0,
@@ -360,18 +747,21 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *, dry_run=Fa
         if metric == "bpm":
             boxes.extend(rows)
             continue
+        played = date.fromisoformat(dates[gid])
+        weight = rapm_game_weight(played, cutoff)
         for _, _, lineup, points, names in rows:
             lineup = tuple(tuple(p) for p in lineup)
-            groups[lineup][0] += 1
-            groups[lineup][1] += points
+            groups[lineup][0] += weight
+            groups[lineup][1] += weight * points
             for player, name in zip(lineup, names):
                 roster[player] = name
                 exposures[player] += 1
                 appearances[player].add(gid)
-                latest[player] = max(latest.get(player, date.min), date.fromisoformat(dates[gid]))
+                latest[player] = max(latest.get(player, date.min), played)
     if not boxes or not groups:
         raise ValueError("Both metrics need accepted game inputs before publishing")
-    bpm, bpm_through = season_bpm(boxes, season, cutoff, include_box_id=True)
+    bpm, bpm_through = season_bpm(boxes, season, cutoff, include_box_id=True,
+                                  listed_positions=listed_positions)
     rapm = solve_rapm(groups, exposures, appearances, latest, roster, teams)
     team_ids = unique((name, tid) for tid, name in teams.items())
     combined = {(team_ids[row["team"]], row["box_player_id"].removeprefix("ncaa:")): row
@@ -386,15 +776,41 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *, dry_run=Fa
                             rapm=row.get("rapm"), details=row))
     if len({p["player_key"] for p in players}) != len(players):
         raise ValueError("BPM and RAPM player identity collision")
-    coverage["bpm"]["through_date"] = bpm_through
+    listed_count = sum((row["team"], row["box_player_id"]) in listed_positions
+                       for row in bpm.values())
+    coverage["bpm"].update(through_date=bpm_through, listed_position_players=listed_count,
+                           fallback_position_players=len(bpm) - listed_count)
     coverage["rapm"]["through_date"] = max(latest.values()).isoformat()
     for counts in coverage.values():
         counts["missing_games"] = counts["expected_games"] - counts["included_games"]
+    print(json.dumps(coverage, sort_keys=True))
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        included = {(gid, metric) for gid, metric, _ in manifest}
+        reasons = {(s["game_key"], s["metric"]): s.get("reason") for s in statuses}
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            print(f"## Ratings coverage through {cutoff}", file=summary)
+            for metric, counts in coverage.items():
+                missing = counts["missing_games"]
+                print(f"\n- {metric.upper()}: {counts['included_games']}/{expected} accepted, "
+                      f"{missing} missing", file=summary)
+                if missing:
+                    print(f"::warning::{metric.upper()} coverage through {cutoff}: {missing} games missing")
+            print(f"\n- BPM positions: {listed_count} from rosters, "
+                  f"{len(bpm) - listed_count} using position 3", file=summary)
+            if any(c["missing_games"] for c in coverage.values()):
+                print("\n| Game date | Game ID | Metric | Reason |\n|---|---|---|---|", file=summary)
+                for gid, played in sorted(dates.items(), key=lambda game: (game[1], game[0]), reverse=True):
+                    for metric in coverage:
+                        if (gid, metric) not in included:
+                            reason = reasons.get((gid, metric)) or "No accepted inputs"
+                            reason = " ".join(reason.split()).replace("|", "&#124;").replace("<", "&lt;")
+                            print(f"| {played} | {gid} | {metric.upper()} | {reason} |", file=summary)
+
     if not dry_run:
         store.publish(dict(season=season, through_date=cutoff.isoformat(), published_at=stamp,
-                           model_version="bpm-college-v1+rapm-ridge-2000-v1",
+                           model_version=MODEL_VERSION,
                            coverage=coverage, input_manifest=manifest), players)
-    print(json.dumps(coverage, sort_keys=True))
 
 
 def main():
@@ -402,6 +818,8 @@ def main():
     parser.add_argument("--season", type=int)
     parser.add_argument("--cutoff", type=date.fromisoformat)
     parser.add_argument("--inputs", type=Path)
+    parser.add_argument("--recheck-season", action="store_true",
+                        help="Revalidate previously processed games after applying historical corrections")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if not args.dry_run and not os.environ.get("RATINGS_DATABASE_URL"):
@@ -410,9 +828,18 @@ def main():
     season = args.season or cutoff.year + (cutoff.month >= 7)
     stamp = datetime.now(timezone.utc)
     run_id = os.getenv("GITHUB_RUN_ID", str(uuid4())) + ":" + os.getenv("GITHUB_RUN_ATTEMPT", "1")
-    previous, due, last_cutoff = ([], [], None) if args.dry_run else store.load_queue(
-        season, cutoff, stamp.isoformat())
-    dates = {cutoff} | {date.fromisoformat(day) for day in due}
+    previous, due, last_cutoff, last_version = ([], [], None, None)
+    if not args.dry_run:
+        previous, due, last_cutoff, last_version = store.load_queue(season, cutoff, stamp.isoformat())
+    # A late final may have no row in the retry queue yet. Revisit recent dates
+    # after the feed has had time to post the game.
+    dates = {cutoff - timedelta(days=offset) for offset in range(3)
+             if cutoff - timedelta(days=offset) >= date(season - 1, 7, 1)}
+    dates.update(date.fromisoformat(day) for day in due)
+    if args.recheck_season or (last_cutoff and last_version != MODEL_VERSION):
+        dates.update(date.fromisoformat(game["game_date"]) for game in previous)
+        if last_version != MODEL_VERSION and last_cutoff:
+            print(f"Revalidating stored games after version change: {last_version} → {MODEL_VERSION}")
     if last_cutoff:
         start = date.fromisoformat(last_cutoff)
         dates.update(start + timedelta(days=i) for i in range(1, (cutoff-start).days+1))
@@ -451,7 +878,9 @@ def main():
         print(dict(count))
         games, statuses = (dry_games, dry_statuses) if args.dry_run else store.load_season(season, cutoff)
         teams = {r["id"]: r["team"] for r in feed_rows(inputs, "team_ids", season)}
-        fit_and_publish(season, cutoff, games, statuses, teams, stamp.isoformat(), dry_run=args.dry_run)
+        positions = listed_bpm_positions(feed_rows(inputs, "team_rosters", season), teams)
+        fit_and_publish(season, cutoff, games, statuses, teams, stamp.isoformat(),
+                        dry_run=args.dry_run, listed_positions=positions)
 
 
 if __name__ == "__main__":

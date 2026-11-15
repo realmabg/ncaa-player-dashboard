@@ -4,6 +4,11 @@ on:
     - cron: '30 7 * * *'
       timezone: America/Los_Angeles
   workflow_dispatch:
+    inputs:
+      recheck_season:
+        description: Revalidate previously processed games
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'ratings/**'
@@ -31,6 +36,12 @@ jobs:
         run: python ratings/daily_ratings.py --dry-run
       - name: Ingest, calculate, and publish
         if: github.event_name != 'pull_request'
+        run: |
+          args=()
+          if [[ "$RECHECK_SEASON" == "true" ]]; then
+            args+=(--recheck-season)
+          fi
+          python ratings/daily_ratings.py "${args[@]}"
         env:
           RATINGS_DATABASE_URL: ${{ secrets.RATINGS_DATABASE_URL }}
-        run: python ratings/daily_ratings.py
+          RECHECK_SEASON: ${{ inputs.recheck_season }}
