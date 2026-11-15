@@ -744,7 +744,8 @@ html, body {
 
 #ratings-tab .ratings-skill-cell .ratings-stat-value {
   font-size: 1.375rem;
-  min-height: 1.35em;
+  line-height: 1.1;
+  min-height: 1.1em;
   color: var(--ink);
   text-align: right;
 }
@@ -752,15 +753,16 @@ html, body {
 #ratings-tab .ratings-stat-details {
   display: flex;
   align-items: flex-end;
-  min-height: 1.35em;
+  min-height: 1.15em;
   gap: .75rem;
-  margin-top: .375rem;
+  font-size: 1.125rem;
+  line-height: 1.15;
   white-space: nowrap;
 }
 
 #ratings-tab .ratings-projection {
   color: var(--ink-2);
-  font-size: .9375rem;
+  text-align: center;
 }
 #ratings-tab .ratings-projection-label {
   display: block;
@@ -769,5 +771,5 @@ html, body {
 #ratings-tab .ratings-stat-details .ratings-percentile {
   margin-top: 0;
   margin-inline-start: auto;
-  font-size: 1.125rem;
+  font-size: inherit;
 }
