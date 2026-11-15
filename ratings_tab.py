@@ -49,9 +49,14 @@ def ratings_tab_ui():
                     {"class": "triton-filter-row"},
                     ratings_filter(ui.input_text("ratings_search", "Search player",
                                                  placeholder="Search a player...")),
-                    ratings_filter(ui.input_select("ratings_conference", "Conference",
-                                                   choices={"": "Any conference"})),
-                    ratings_filter(ui.input_select("ratings_team", "Team", choices={"": "Any team"})),
+                    ratings_filter(ui.input_selectize(
+                        "ratings_conference", "Conference", choices=[], remove_button=True,
+                        options={"placeholder": "Search conferences…", "maxOptions": 40},
+                    )),
+                    ratings_filter(ui.input_selectize(
+                        "ratings_team", "Team", choices=[], remove_button=True,
+                        options={"placeholder": "Search teams…", "maxOptions": 40},
+                    )),
                     ratings_filter(ui.input_select("ratings_limit", "Board length",
                                                    choices=BOARD_LENGTHS, selected="100")),
                 ),
@@ -150,11 +155,12 @@ def ratings_tab_server(input, session):
         teams = sorted(frame["team"].dropna().unique())
         conferences = sorted(frame["conference"].dropna().unique())
         with reactive.isolate():
-            selected = input.ratings_team()
-        ui.update_select("ratings_team", choices={"": "Any team", **{team: team for team in teams}},
-                         selected=selected if selected in teams else "", session=session)
-        ui.update_select("ratings_conference", choices={"": "Any conference", **{name: name for name in conferences}},
-                         selected="", session=session)
+            team = input.ratings_team()
+            conference = input.ratings_conference()
+        ui.update_selectize("ratings_team", choices=teams,
+                            selected=team if team in teams else [], session=session)
+        ui.update_selectize("ratings_conference", choices=conferences,
+                            selected=conference if conference in conferences else [], session=session)
         snapshot.set(frame)
 
     @render.ui

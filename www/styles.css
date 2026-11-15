@@ -600,6 +600,11 @@ html, body {
 #ratings_status p { margin: 0; }
 #ratings-tab .ratings-csv-link { color: var(--accent); }
 
+#ratings-tab .selectize-dropdown-content {
+  max-height: 220px;
+  overscroll-behavior-y: contain;
+}
+
 #ratings-tab .ratings-stat-controls {
   display: flex;
   flex-wrap: wrap;
