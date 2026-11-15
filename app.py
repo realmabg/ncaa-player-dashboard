@@ -15,7 +15,7 @@ from data_engine import (
     load_data, load_d1_data,
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
-from ratings_tab import ratings_tab_server, ratings_tab_ui
+from ratings.page.ratings_tab import ratings_tab_server, ratings_tab_ui
 
 HERE = Path(__file__).parent
 BUNDLED_CURRENT_D2_SCHEMA_PATH = HERE / "current_d2_all_players_10mpg_dashboard_schema.csv"
@@ -4836,30 +4836,57 @@ def make_qualification_diagnostics(df, mode):
 # APP UI
 # ─────────────────────────────────────────────────────────────────────────
 
+def dashboard_tab(tab, label, *, selected=False):
+    return ui.tags.button(
+        label, id=f"btn-{tab}", type="button",
+        class_=f"tab-btn active-{tab}" if selected else "tab-btn",
+        aria_controls=f"{tab}-tab", aria_current="page" if selected else None,
+        onclick=f"switchTab('{tab}')",
+    )
+
+
+def dashboard_menu(label, *pages, primary=None):
+    return ui.div(
+        primary,
+        ui.tags.details(
+            ui.tags.summary(
+                label if primary is None else None,
+                ui.span("▾", class_="tab-menu-caret", aria_hidden="true"),
+                class_="tab-btn tab-menu-toggle",
+                aria_label=f"{label} pages" if primary is not None else None,
+            ),
+            ui.div(*pages, class_="tab-menu-pages"),
+            class_="tab-menu",
+        ),
+        class_="tab-group tab-group-more" if primary is None else "tab-group",
+    )
+
+
 app_ui = ui.page_fluid(
     ui.tags.head(
         ui.tags.link(rel="stylesheet",
             href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"),
         ui.include_css(str(HERE / "www" / "styles.css"), method="inline"),
+        ui.include_css(str(HERE / "ratings" / "page" / "styles.css"), method="inline"),
         ui.tags.style("""
             /* ── Tab bar ─────────────────────────────────────── */
             #tab-switcher {
-                display:flex; gap:4px; align-items:center;
+                position:relative; z-index:2;
+                display:flex; flex-wrap:wrap; gap:0 4px; align-items:center;
                 padding:0 28px; background:var(--bg);
                 border-bottom:1px solid var(--rule);
-                height:38px; flex-shrink:0;
-                overflow-x:auto; overflow-y:hidden; white-space:nowrap;
+                min-height:38px; flex-shrink:0; white-space:nowrap;
             }
             .tab-btn {
                 font-family:var(--sans); font-size:11px; font-weight:600;
                 letter-spacing:.10em; text-transform:uppercase;
-                color:var(--ink-3); background:none; border:none;
+                color:var(--ink-2); background:none; border:none;
                 border-bottom:2px solid transparent;
                 padding:0 14px; height:38px; cursor:pointer;
                 flex:0 0 auto;
                 transition:color .15s, border-color .15s;
             }
-            .tab-btn:hover     { color:var(--ink-2); }
+            .tab-btn:hover     { color:var(--ink); }
             .tab-btn.active-d1 { color:#4a9eed;       border-bottom-color:#4a9eed; }
             .tab-btn.active-ratings { color:var(--accent); border-bottom-color:var(--accent); }
             .tab-btn.active-d2 { color:var(--accent);  border-bottom-color:var(--accent); }
@@ -4870,7 +4897,34 @@ app_ui = ui.page_fluid(
             .tab-btn.active-hist { color:#c9d6f0;       border-bottom-color:#c9d6f0; }
             .tab-btn.active-sim-beta { color:#f0cb67;   border-bottom-color:#f0cb67; }
             .tab-btn.active-triton { color:#c8a84b;     border-bottom-color:#c8a84b; }
-            .tab-sep { width:1px; height:16px; background:var(--rule-2); margin:0 4px; }
+            .tab-group { display:flex; position:relative; align-items:center; }
+            .tab-group > .tab-btn { padding-right:4px; }
+            .tab-menu-toggle { display:flex; align-items:center; gap:6px; list-style:none; }
+            .tab-menu-toggle::-webkit-details-marker { display:none; }
+            .tab-group:not(.tab-group-more) .tab-menu-toggle { padding:0 10px 0 6px; }
+            .tab-menu-caret { display:inline-block; }
+            .tab-menu[open] .tab-menu-caret { transform:rotate(180deg); }
+            .tab-group:has(.tab-menu [aria-current="page"]) > .tab-btn,
+            .tab-group-more:has([aria-current="page"]) .tab-menu-toggle {
+                color:var(--accent); border-bottom-color:var(--accent);
+            }
+            .tab-menu-pages {
+                position:absolute; top:100%; left:0; min-width:100%;
+                display:grid; gap:2px; padding:6px;
+                border:1px solid var(--rule); border-radius:8px;
+                background:var(--bg-2); box-shadow:0 8px 24px #0004;
+            }
+            .tab-group-more .tab-menu-pages { left:auto; right:0; }
+            .tab-menu-pages .tab-btn { text-align:left; border-radius:4px; }
+            .tab-menu-pages .tab-btn:hover { background:var(--bg); }
+            #tab-switcher .tab-btn:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+            @media (max-width: 760px) {
+                #tab-switcher { padding:0 8px; }
+                .tab-group { position:static; }
+                .tab-menu-pages, .tab-group-more .tab-menu-pages {
+                    left:8px; right:8px; min-width:0;
+                }
+            }
             .build-stamp {
                 display:inline-flex; align-items:center; width:fit-content;
                 margin-top:10px; padding:6px 10px;
@@ -7134,15 +7188,42 @@ app_ui = ui.page_fluid(
                 document.body.dataset.codexGlobalScatterBound = '1';
             }
 
+            function closeTabMenus(except = null) {
+                document.querySelectorAll('#tab-switcher details[open]').forEach(function(menu) {
+                    if (menu !== except) menu.open = false;
+                });
+            }
+
+            document.addEventListener('toggle', function(ev) {
+                if (ev.target.matches('#tab-switcher details[open]')) closeTabMenus(ev.target);
+            }, true);
+            document.addEventListener('click', function(ev) {
+                if (!ev.target.closest('#tab-switcher .tab-menu')) closeTabMenus();
+            });
+            document.addEventListener('keydown', function(ev) {
+                if (ev.key !== 'Escape') return;
+                var menu = document.querySelector('#tab-switcher details[open]');
+                if (!menu) return;
+                if (menu.contains(document.activeElement)) menu.querySelector('summary').focus();
+                closeTabMenus();
+            });
+
             function switchTab(tab) {
+                var button = document.getElementById('btn-'+tab);
+                var menu = button.closest('details');
+                if (menu) menu.querySelector('summary').focus();
+                closeTabMenus();
                 document.querySelectorAll('.tab-panel').forEach(function(p) {
                     p.classList.remove('active');
                 });
-                document.querySelectorAll('.tab-btn').forEach(function(b) {
-                    b.classList.remove('active-d1','active-d2','active-d3','active-info','active-wl','active-ucsd','active-hist','active-sim-beta','active-triton','active-ratings');
-                });
+                var previous = document.querySelector('#tab-switcher [aria-current="page"]');
+                if (previous) {
+                    previous.classList.remove('active-' + previous.id.slice(4));
+                    previous.removeAttribute('aria-current');
+                }
                 document.getElementById(tab+'-tab').classList.add('active');
-                document.getElementById('btn-'+tab).classList.add('active-'+tab);
+                button.classList.add('active-'+tab);
+                button.setAttribute('aria-current', 'page');
                 if (window.Shiny && window.Shiny.setInputValue) {
                     window.Shiny.setInputValue('active_tab', tab, {priority: 'event'});
                     if (tab === 'sim-beta' && window.ucsdSyncTritonTracker) {
@@ -7342,38 +7423,21 @@ app_ui = ui.page_fluid(
                           ui.div("D-III Teams",                class_="mast-stat-lbl"), class_="mast-stat")),
         ),
 
-        ui.div({"id": "tab-switcher"},
-               ui.tags.button("Division I",   id="btn-d1", class_="tab-btn active-d1",
-                              onclick="switchTab('d1')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Ratings", id="btn-ratings", class_="tab-btn",
-                              onclick="switchTab('ratings')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Division II",  id="btn-d2", class_="tab-btn",
-                              onclick="switchTab('d2')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Division III", id="btn-d3", class_="tab-btn",
-                              onclick="switchTab('d3')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Triton Tracker", id="btn-sim-beta", class_="tab-btn",
-                              onclick="switchTab('sim-beta')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Triton Zone", id="btn-triton", class_="tab-btn",
-                              onclick="switchTab('triton')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Historical Players (beta)", id="btn-hist", class_="tab-btn",
-                              onclick="switchTab('hist')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("Archetype Guide", id="btn-info", class_="tab-btn",
-                              onclick="switchTab('info')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button(
-                   ui.HTML('Watchlist <span id="wl-badge" class="wl-badge" style="display:none">0</span>'),
-                   id="btn-wl", class_="tab-btn",
-                   onclick="switchTab('wl')"),
-               ui.div({"class": "tab-sep"}),
-               ui.tags.button("UCSD 2026-27 (beta)", id="btn-ucsd", class_="tab-btn",
-                              onclick="switchTab('ucsd')")),
+        ui.tags.nav(
+            dashboard_tab("d1", "Division I", selected=True),
+            dashboard_tab("ratings", "Ratings"),
+            dashboard_menu("Triton Tracker", dashboard_tab("hist", "Historical Players (beta)"),
+                           primary=dashboard_tab("sim-beta", "Triton Tracker")),
+            dashboard_tab("triton", "Triton Zone"),
+            dashboard_tab("info", "Archetype Guide"),
+            dashboard_menu(
+                "UCSD 26–27 (beta)",
+                dashboard_tab("wl", ui.HTML('Watchlist <span id="wl-badge" class="wl-badge" style="display:none">0</span>')),
+                primary=dashboard_tab("ucsd", "UCSD 26–27 (beta)"),
+            ),
+            dashboard_menu("More", dashboard_tab("d2", "Division II"), dashboard_tab("d3", "Division III")),
+            id="tab-switcher", aria_label="Dashboard pages",
+        ),
 
         ui.div({"id": "tab-content"},
 
@@ -7423,7 +7487,10 @@ app_ui = ui.page_fluid(
                           ),
                           ui.output_ui("watchlist_ui"))),
 
-            ui.output_ui("ucsd_tab_ui"),
+            ui.div(
+                {"id": "ucsd-tab", "class": "tab-panel"},
+                ui.output_ui("ucsd_tab_ui", style="flex:1; min-height:0; display:flex;"),
+            ),
         ),
 
         ui.div({"id": "site-footer"}, "Developed at UC San Diego · © 2026"),
@@ -9358,13 +9425,10 @@ def server(input, output, session):
                 f"{src}&watchlist="
                 f"{quote(json.dumps(query_payload, separators=(',', ':')))}"
             )
-        return ui.div(
-            {"id": "ucsd-tab", "class": "tab-panel"},
-            ui.tags.iframe(
-                id="ucsd-lineup-frame",
-                src=src,
-                style="flex:1; width:100%; height:100%; border:none;",
-            ),
+        return ui.tags.iframe(
+            id="ucsd-lineup-frame",
+            src=src,
+            style="flex:1; width:100%; height:100%; border:none;",
         )
 
     @output

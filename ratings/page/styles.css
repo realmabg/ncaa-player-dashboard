@@ -1,0 +1,150 @@
+/* Ratings overrides for the shared dashboard leaderboard styles. */
+#atlas-shell:has(#ratings-tab.active) { min-height: 640px; }
+#ratings-tab.tab-panel.active { overflow-y: auto; }
+#ratings-tab .triton-table { min-width: 460px; }
+#ratings-tab .triton-table th { position: static; }
+#ratings-tab .triton-table tbody tr { cursor: default; }
+#ratings-tab .control-label {
+  display: block;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .10em;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+#ratings_status { height: auto !important; }
+#ratings_status p { margin: 0; }
+#ratings-tab .ratings-csv-link { color: var(--accent); }
+
+#ratings-tab .selectize-dropdown-content {
+  max-height: 220px;
+  overscroll-behavior-y: contain;
+}
+
+#ratings-tab .triton-table-card {
+  background: var(--bg);
+  border-color: var(--rule);
+}
+
+#ratings-tab .triton-table th {
+  background: var(--bg-2);
+  color: var(--ink-2);
+  letter-spacing: .07em;
+  white-space: normal;
+}
+
+#ratings-tab .triton-table th,
+#ratings-tab .triton-table td {
+  padding: .65rem .8rem;
+  border-bottom-color: var(--rule);
+}
+
+#ratings-tab .triton-table tbody tr {
+  --ratings-row: var(--bg);
+  background: var(--ratings-row);
+}
+
+#ratings-tab .triton-table tbody tr:nth-child(even) {
+  --ratings-row: color-mix(in srgb, var(--bg-2) 45%, var(--bg));
+}
+
+#ratings-tab .triton-table tbody tr:hover {
+  --ratings-row: var(--bg-2);
+}
+
+#ratings-tab .triton-table .ratings-player-column {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-shadow: 1px 0 var(--rule-2);
+}
+
+#ratings-tab td.ratings-player-column {
+  background: var(--ratings-row);
+}
+
+#ratings-tab .triton-table-player {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+#ratings-tab .ratings-team-column {
+  color: var(--ink-2);
+}
+
+#ratings-tab .ratings-stat-cell {
+  --ratings-secondary-size: .7rem;
+  min-width: 94px;
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+#ratings-tab .ratings-stat-cell:nth-child(4),
+#ratings-tab .ratings-stat-cell:nth-child(5),
+#ratings-tab .triton-table th:nth-child(4),
+#ratings-tab .triton-table th:nth-child(5) {
+  background: color-mix(in srgb, var(--bg-2) 65%, var(--ratings-row, var(--bg)));
+}
+
+#ratings-tab .ratings-stat-cell:nth-child(4) .ratings-stat-value,
+#ratings-tab .ratings-stat-cell:nth-child(5) .ratings-stat-value {
+  color: var(--accent);
+}
+
+#ratings-tab .ratings-stat-value,
+#ratings-tab .ratings-percentile {
+  display: block;
+}
+
+#ratings-tab .ratings-stat-value {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+#ratings-tab .ratings-percentile {
+  margin-top: .18rem;
+  font-size: var(--ratings-secondary-size);
+  line-height: 1.15;
+  color: var(--ink-2);
+}
+
+#ratings-tab .ratings-percentile.high { color: var(--pos-gf); }
+#ratings-tab .ratings-percentile.low { color: #f28b8b; }
+
+#ratings-tab td.ratings-skill-cell {
+  min-width: 124px;
+  padding-block: .8rem;
+}
+
+#ratings-tab .ratings-skill-cell .ratings-stat-value {
+  min-height: 1.1em;
+  color: var(--ink);
+  text-align: right;
+}
+
+#ratings-tab .ratings-stat-details {
+  display: flex;
+  align-items: flex-end;
+  min-height: 1.15em;
+  gap: .75rem;
+  font-size: var(--ratings-secondary-size);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+#ratings-tab .ratings-projection {
+  color: var(--ink-2);
+  text-align: center;
+}
+#ratings-tab .ratings-projection-label {
+  display: block;
+  font-size: .6875rem;
+}
+#ratings-tab .ratings-stat-details .ratings-percentile {
+  margin-top: 0;
+  margin-inline-start: auto;
+}

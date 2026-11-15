@@ -1,0 +1,1 @@
+"""Ratings page and presentation."""
