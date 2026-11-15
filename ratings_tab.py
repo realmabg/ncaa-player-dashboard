@@ -1,14 +1,13 @@
 """The daily BPM and RAPM leaderboard in the Shiny dashboard."""
 import asyncio
 import html
-import json
 from io import BytesIO
 from urllib.request import Request, urlopen
 
 import pandas as pd
 from shiny import reactive, render, ui
 
-from player_projections import player_projections_panel
+from player_projections import format_projection, projection_values, projections_for_season
 
 CSV_URL = (
     "https://raw.githubusercontent.com/Siddhu-S/ncaa-player-dashboard/"
@@ -20,6 +19,7 @@ PLAYER_COLUMNS = (
     ("rapm", "RAPM"),
     ("bpm", "BPM"),
 )
+PROJECTION_PERIODS = ("Preseason", "Updated")
 SAMPLE_COLUMNS = ("bpm_minutes", "rapm_possessions")
 BOARD_LENGTHS = {"100": "100", "250": "250", "500": "500", "0": "All"}
 COVERAGE_COLUMNS = {
@@ -62,8 +62,7 @@ def ratings_tab_ui():
                 ui.a("Open CSV", href=CSV_URL, target="_blank", rel="noopener",
                      class_="triton-results-note ratings-csv-link"),
             ),
-            ui.output_ui("ratings_projections"),
-            ui.output_ui("ratings_table"),
+            ui.div(ui.output_ui("ratings_table"), class_="triton-table-card"),
         ),
     )
 
@@ -102,7 +101,8 @@ def ratings_tab_server(input, session):
     @reactive.event(input.ratings_sort_click)
     def update_sort():
         column = input.ratings_sort_click()
-        if column not in dict(PLAYER_COLUMNS):
+        frame = snapshot.get()
+        if column not in dict(PLAYER_COLUMNS) and (frame is None or column not in projection_keys(frame)):
             return
         current, ascending = sort.get()
         sort.set((column, not ascending if column == current else column in {"player_name", "team"}))
@@ -119,6 +119,9 @@ def ratings_tab_server(input, session):
             selected = input.ratings_team()
             ui.update_select("ratings_team", choices={"": "Any team", **{team: team for team in teams}},
                              selected=selected if selected in teams else "", session=session)
+            frame = with_projections(frame)
+            if sort.get()[0] not in frame.columns:
+                sort.set(("rapm", False))
             snapshot.set(frame)
             error.set(False)
         except (OSError, ValueError, RuntimeError):
@@ -133,6 +136,7 @@ def ratings_tab_server(input, session):
         meta = current.iloc[0]
         season = int(meta["season"])
         expected = int(meta["expected_games"])
+        projections = projections_for_season(season)
         return ui.TagList(
             ui.p(f"{season - 1}–{str(season)[-2:]} season · Games through {meta['through_date']}"),
             ui.p(
@@ -142,6 +146,10 @@ def ratings_tab_server(input, session):
                 f"through {meta['rapm_through_date']} "
                 f"({int(meta['rapm_excluded_possessions']):,} possessions excluded)"
             ),
+            ui.p(
+                f"Projections · Preseason data through {projections['preseason_through']} · "
+                f"Updated rest-of-season data through {projections['updated_through']}"
+            ) if projections else None,
             ui.p("Refresh failed. Showing the last loaded snapshot.") if error.get() else None,
         )
 
@@ -181,15 +189,6 @@ def ratings_tab_server(input, session):
         return "" if rows is None else f"{len(rows):,} of {total:,} matching players"
 
     @render.ui
-    @reactive.event(input.ratings_projection_player)
-    def ratings_projections():
-        name, team = input.ratings_projection_player()
-        frame = snapshot.get()
-        if frame is None or not (frame["player_name"].eq(name) & frame["team"].eq(team)).any():
-            return None
-        return player_projections_panel(name, team, int(frame.iloc[0]["season"]))
-
-    @render.ui
     def ratings_table():
         rows, _ = ratings_rows()
         if rows is None:
@@ -199,39 +198,70 @@ def ratings_tab_server(input, session):
         return ui.HTML(render_ratings_board(rows, *sort.get()))
 
 
+def projection_keys(frame):
+    return [column for column in frame.columns if column.startswith("projection_")]
+
+
+def with_projections(frame):
+    projections = projections_for_season(int(frame.iloc[0]["season"]))
+    if projections is None:
+        return frame
+    keys = [f"projection_{i}_{period.lower()}" for i in range(len(projections["stats"]))
+            for period in PROJECTION_PERIODS]
+    values = [projection_values(projections, name, team) if pd.notna(name) and pd.notna(team)
+              else [None] * len(keys)
+              for name, team in frame[["player_name", "team"]].itertuples(index=False, name=None)]
+    columns = pd.DataFrame(values, columns=keys, index=frame.index, dtype=float)
+    return pd.concat([frame, columns], axis=1)
+
+
+def sort_header(column, label, sort_column, ascending, *, stat_label=None, rowspan=1):
+    sort_attr = marker = ""
+    if column == sort_column:
+        direction = "ascending" if ascending else "descending"
+        sort_attr = f' aria-sort="{direction}"'
+        marker = " ↑" if ascending else " ↓"
+    accessible_label = html.escape(f"{stat_label} {label}" if stat_label else label, quote=True)
+    cell_class = ' class="ratings-player-column"' if column == "player_name" else ""
+    click = f"Shiny.setInputValue('ratings_sort_click','{column}',{{priority:'event'}})"
+    return (f'<th scope="col" rowspan="{rowspan}"{cell_class}{sort_attr}>'
+            f'<button type="button" aria-label="{accessible_label}" onclick="{click}">'
+            f'{label}{marker}</button></th>')
+
+
 def render_ratings_board(rows, sort_column, ascending):
-    parts = ['<div class="triton-table-card"><table class="triton-table" aria-label="Player Ratings">'
-             '<thead><tr><th scope="col" class="triton-col-rank">#</th>']
+    projections = projections_for_season(int(rows.iloc[0]["season"]))
+    stats = projections["stats"] if projections else []
+    keys = projection_keys(rows)
+    rowspan = 2 if stats else 1
+    parts = ['<table class="triton-table" aria-label="Player Ratings">']
+    if stats:
+        parts.append('<colgroup span="5"></colgroup>' + '<colgroup span="2"></colgroup>' * len(stats))
+    parts.append(f'<thead><tr><th scope="col" rowspan="{rowspan}" class="triton-col-rank">#</th>')
     for column, label in PLAYER_COLUMNS:
-        marker = ""
-        sort_attr = ""
-        if column == sort_column:
-            direction = "ascending" if ascending else "descending"
-            sort_attr = f' aria-sort="{direction}"'
-            marker = " ↑" if ascending else " ↓"
-        click = f"Shiny.setInputValue('ratings_sort_click','{column}',{{priority:'event'}})"
-        parts.append(f'<th scope="col"{sort_attr}><button type="button" onclick="{click}">'
-                     f"{label}{marker}</button></th>")
-    parts.append('<th scope="col">Projections</th></tr></thead><tbody>')
+        parts.append(sort_header(column, label, sort_column, ascending, rowspan=rowspan))
+    for stat in stats:
+        parts.append(f'<th class="ratings-stat-group" scope="colgroup" colspan="2">{html.escape(stat["label"])}</th>')
+    parts.append("</tr>")
+    if stats:
+        parts.append('<tr class="ratings-projection-periods">')
+        for index, stat in enumerate(stats):
+            for key, period in zip(keys[2 * index:2 * index + 2], PROJECTION_PERIODS, strict=True):
+                parts.append(sort_header(key, period, sort_column, ascending, stat_label=stat["label"]))
+        parts.append("</tr>")
+    parts.append("</thead><tbody>")
     for rank, record in enumerate(rows.itertuples(index=False), start=1):
         player = html.escape(str(record.player_name)) if pd.notna(record.player_name) else "—"
         team = html.escape(str(record.team)) if pd.notna(record.team) else "—"
         parts.append(f'<tr><td class="triton-col-rank">{rank}</td>'
-                     f'<td><div class="triton-table-player">{player}</div></td><td>{team}</td>')
+                     f'<td class="ratings-player-column"><div class="triton-table-player">{player}</div></td>'
+                     f'<td>{team}</td>')
         for value in (record.rapm, record.bpm):
             score = f"{value:+.2f}" if pd.notna(value) else "—"
             parts.append(f'<td><span class="triton-war-value">{score}</span></td>')
-        if pd.notna(record.player_name) and pd.notna(record.team):
-            selection = json.dumps([record.player_name, record.team])
-            click = f"Shiny.setInputValue('ratings_projection_player',{selection},{{priority:'event'}});"
-            click += "document.getElementById('ratings_projections').scrollIntoView({block:'start'});"
-            parts.append(
-                f'<td><button type="button" class="ratings-projection-button" '
-                f'aria-label="View projections for {html.escape(str(record.player_name), quote=True)}" '
-                f'onclick="{html.escape(click, quote=True)}">View</button></td>'
-            )
-        else:
-            parts.append("<td></td>")
+        for index, key in enumerate(keys):
+            value = format_projection(getattr(record, key), stats[index // 2]["unit"])
+            parts.append(f'<td class="ratings-projection-value">{value}</td>')
         parts.append("</tr>")
-    parts.append("</tbody></table></div>")
+    parts.append("</tbody></table>")
     return "".join(parts)

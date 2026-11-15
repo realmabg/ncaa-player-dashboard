@@ -94,11 +94,11 @@ Missing ratings are blank. The CSV is accessible from the public GitHub reposito
 
 ## Player projections
 
-The Ratings tab shows preseason and rest-of-season projections for 2026–27.
-Choose **View** in a player’s Projections column to open the table above the
-leaderboard. The table labels the forecast season and destination school. Shooting and opportunity
-shares display as percentages, counting rates display per 100 of the labeled
-exposure, and FTA/FGA displays as a ratio.
+The Ratings leaderboard includes two columns per projected stat for 2026–27.
+Scroll horizontally to compare preseason and updated rest-of-season values.
+Click a column header to sort. The dates above the table identify both data
+cutoffs. Shooting and opportunity shares display as percentages, counting
+rates display per 100 of the labeled exposure, and FTA/FGA displays as a ratio.
 
 To refresh the bundled projection snapshot, run
 `scripts/export_player_projections.py` with the forecasting workspace's Python
