@@ -51,11 +51,11 @@ def ratings_tab_ui():
                                                  placeholder="Search a player...")),
                     ratings_filter(ui.input_selectize(
                         "ratings_conference", "Conference", choices=[], remove_button=True,
-                        options={"placeholder": "Search conferences…", "maxOptions": 40},
+                        options={"placeholder": "Search conferences…"},
                     )),
                     ratings_filter(ui.input_selectize(
                         "ratings_team", "Team", choices=[], remove_button=True,
-                        options={"placeholder": "Search teams…", "maxOptions": 40},
+                        options={"placeholder": "Search teams…"},
                     )),
                     ratings_filter(ui.input_select("ratings_limit", "Board length",
                                                    choices=BOARD_LENGTHS, selected="100")),
@@ -71,12 +71,6 @@ def ratings_tab_ui():
                     ui.div("Minutes are season totals from BPM box scores. Leave the maximum blank for no cap.",
                            class_="triton-results-note"),
                 ),
-            ),
-            ui.div(
-                ui.input_radio_buttons("ratings_projection_period", "Projection period",
-                                       {"updated": "Rest of season", "preseason": "Preseason"},
-                                       selected="updated", inline=True),
-                class_="ratings-stat-controls",
             ),
             ui.div(
                 {"class": "triton-results-head"},
@@ -173,8 +167,6 @@ def ratings_tab_server(input, session):
         season = int(meta["season"])
         expected = int(meta["expected_games"])
         projections = projections_for_season(season)
-        period = projection_period()
-        labels = {"updated": "Rest-of-season projections", "preseason": "Preseason projections"}
         return ui.TagList(
             ui.p(f"{season - 1}–{str(season)[-2:]} season · Games through {meta['through_date']}"),
             ui.p(
@@ -186,18 +178,14 @@ def ratings_tab_server(input, session):
             ),
             ui.p(
                 f"Actual stats through {projections['actual_through']} · "
-                f"{labels[period]} through {projections[f'{period}_through']}"
+                f"Rest-of-season projections through {projections['updated_through']}"
             ) if projections else None,
         )
 
     @reactive.calc
-    def projection_period():
-        return input.ratings_projection_period() or "updated"
-
-    @reactive.calc
     def stats_board():
         frame = snapshot.get()
-        return with_stat_percentiles(frame, projection_period()) if frame is not None else None
+        return with_stat_percentiles(frame) if frame is not None else None
 
     @reactive.calc
     def ratings_rows():
@@ -257,7 +245,7 @@ def skill_columns(frame):
     return [column for column in frame.columns if column.startswith("skill_")]
 
 
-def with_stat_percentiles(frame, period):
+def with_stat_percentiles(frame):
     projections = projections_for_season(int(frame.iloc[0]["season"]))
     directions = {"bpm": True, "rapm": True}
     if projections:
@@ -265,7 +253,7 @@ def with_stat_percentiles(frame, period):
         keys = [f"skill_{i}" for i in range(len(stats))]
         names_and_teams = list(frame[["player_name", "team"]].itertuples(index=False, name=None))
         stat_columns = []
-        for mode, columns in (("actual", keys), (period, [f"proj_{key}" for key in keys])):
+        for mode, columns in (("actual", keys), ("updated", [f"proj_{key}" for key in keys])):
             values = [
                 projection_values(projections, name, team, mode) if pd.notna(name) and pd.notna(team)
                 else [None] * len(keys)

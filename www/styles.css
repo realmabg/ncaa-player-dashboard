@@ -605,54 +605,6 @@ html, body {
   overscroll-behavior-y: contain;
 }
 
-#ratings-tab .ratings-stat-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .75rem 1.25rem;
-  margin: .25rem 0;
-}
-
-#ratings-tab .ratings-stat-controls .shiny-input-container {
-  width: auto;
-  margin: 0;
-}
-
-#ratings-tab .ratings-stat-controls .shiny-options-group {
-  display: inline-flex;
-  border: 1px solid var(--rule-2);
-  border-radius: .4rem;
-  overflow: hidden;
-}
-
-#ratings-tab .ratings-stat-controls .radio-inline {
-  position: relative;
-  padding: .45rem .85rem;
-  margin: 0;
-  cursor: pointer;
-  color: var(--ink-2);
-}
-
-#ratings-tab .ratings-stat-controls .radio-inline + .radio-inline {
-  border-left: 1px solid var(--rule-2);
-}
-
-#ratings-tab .ratings-stat-controls .radio-inline input {
-  position: absolute;
-  opacity: 0;
-}
-
-#ratings-tab .ratings-stat-controls label:has(input:checked) {
-  color: var(--bg);
-  background: var(--accent);
-  font-weight: 700;
-}
-
-#ratings-tab .ratings-stat-controls label:has(input:focus-visible) {
-  outline: 2px solid var(--ink);
-  outline-offset: -2px;
-}
-
 #ratings-tab .triton-table-card {
   background: var(--bg);
   border-color: var(--rule);
