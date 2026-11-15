@@ -9,13 +9,13 @@ import html
 import json
 import math
 import re
-from urllib.parse import quote
 
 from data_engine import (
     load_data, load_d1_data,
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
 from ratings.page.ratings_tab import ratings_tab_server, ratings_tab_ui
+from ratings.projections.player_projections import lineup_forecast_payload
 
 HERE = Path(__file__).parent
 BUNDLED_CURRENT_D2_SCHEMA_PATH = HERE / "current_d2_all_players_10mpg_dashboard_schema.csv"
@@ -4895,7 +4895,7 @@ app_ui = ui.page_fluid(
             .tab-btn.active-d3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
             .tab-btn.active-info { color:var(--ink);    border-bottom-color:var(--ink); }
             .tab-btn.active-wl { color:#7cc47a;         border-bottom-color:#7cc47a; }
-            .tab-btn.active-ucsd { color:#8a5f0e;       border-bottom-color:#8a5f0e; }
+            .tab-btn.active-ucsd { color:var(--accent); border-bottom-color:var(--accent); }
             .tab-btn.active-hist { color:#c9d6f0;       border-bottom-color:#c9d6f0; }
             .tab-btn.active-sim-beta { color:#f0cb67;   border-bottom-color:#f0cb67; }
             .tab-btn.active-triton { color:#c8a84b;     border-bottom-color:#c8a84b; }
@@ -7226,6 +7226,12 @@ app_ui = ui.page_fluid(
                 document.getElementById(tab+'-tab').classList.add('active');
                 button.classList.add('active-'+tab);
                 button.setAttribute('aria-current', 'page');
+                if (tab === 'ucsd') {
+                    var lineupFrame = document.getElementById('ucsd-lineup-frame');
+                    if (lineupFrame && !lineupFrame.hasAttribute('src')) {
+                        lineupFrame.src = lineupFrame.dataset.src;
+                    }
+                }
                 if (window.Shiny && window.Shiny.setInputValue) {
                     window.Shiny.setInputValue('active_tab', tab, {priority: 'event'});
                     if (tab === 'sim-beta' && window.ucsdSyncTritonTracker) {
@@ -7491,7 +7497,18 @@ app_ui = ui.page_fluid(
 
             ui.div(
                 {"id": "ucsd-tab", "class": "tab-panel"},
-                ui.output_ui("ucsd_tab_ui", style="flex:1; min-height:0; display:flex;"),
+                ui.tags.iframe(
+                    {
+                        "data-lineup-forecast": json.dumps(
+                            lineup_forecast_payload(2027, "UC San Diego"),
+                            allow_nan=False, separators=(",", ":"),
+                        ),
+                        "data-src": "lineup/index.html?v=20261115",
+                    },
+                    id="ucsd-lineup-frame",
+                    title="UCSD lineup predictor",
+                    style="flex:1; width:100%; min-height:0; border:none;",
+                ),
             ),
         ),
 
@@ -9403,32 +9420,6 @@ def server(input, output, session):
         return ui.div(
             ui.tags.script(js),
             ui.div({"class": "wl-grid"}, *cards))
-
-    @output
-    @render.ui
-    def ucsd_tab_ui():
-        payload = build_watchlist_lineup_candidates(watchlist.get())
-        # Keep the iframe payload lean enough for query-string transport.
-        query_payload = [
-            {
-                key: value
-                for key, value in candidate.items()
-                if key != "note"
-            }
-            for candidate in payload
-        ]
-        cache_buster = "20260821b"
-        src = f"ucsd_lineup_predictor.html?v={cache_buster}"
-        if query_payload:
-            src = (
-                f"{src}&watchlist="
-                f"{quote(json.dumps(query_payload, separators=(',', ':')))}"
-            )
-        return ui.tags.iframe(
-            id="ucsd-lineup-frame",
-            src=src,
-            style="flex:1; width:100%; height:100%; border:none;",
-        )
 
     @output
     @render.ui

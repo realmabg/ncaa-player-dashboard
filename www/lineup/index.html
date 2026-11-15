@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UCSD Tritons — 2026-27 Lineup Predictor</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lineup.css?v=20261115">
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="eyebrow">UC San Diego Tritons · 2026–27 Season Preview</div>
+    <h1>LINEUP<br><span>PREDICTOR</span></h1>
+    <div class="header-meta">
+      <div class="meta-item">
+        <span class="meta-label">Last Season</span>
+        <span class="meta-val">23–11</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Conf</span>
+        <span class="meta-val gold">Big West</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Net Rtg</span>
+        <span class="meta-val">+5.4</span>
+      </div>
+
+    </div>
+  </div>
+</header>
+
+<div class="method-bar">
+  <strong>Methodology:</strong>&nbsp;
+  BPR from Barttorvik BPM · Conference strength measured from 2025-26 team AdjEM (365 teams), not blanket estimates · ORtg anchored to UCSD actual AdjOE 107.8 · Click any player for team context and scouting note
+</div>
+
+<div class="layout">
+  <!-- ROSTER PANEL -->
+  <div class="roster-panel">
+    <div class="panel-title">Roster — Drag into slot · Click to view profile</div>
+
+    <div class="group-label">Returners</div>
+
+
+
+    <div class="player-row" data-id="beath" draggable="true" ondragstart="dragStart(event, 'beath')" ondragend="dragEnd(event)" onclick="openDrawer('beath')">
+      <div class="p-num">8</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Leo Beath</div>
+        <div class="p-sub">6-8 · Sr · PF/SF</div>
+      </div>
+      <div>
+        <div class="p-bpr c-red">-0.1</div>
+        <div class="p-ts">TS% 55.0</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('beath')" id="btn-beath">+</button>
+    </div>
+
+    <div class="player-row" data-id="beattie" draggable="true" ondragstart="dragStart(event, 'beattie')" ondragend="dragEnd(event)" onclick="openDrawer('beattie')">
+      <div class="p-num">9</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Tom Beattie</div>
+        <div class="p-sub">6-5 · Sr · SG/PG/SF</div>
+      </div>
+      <div>
+        <div class="p-bpr c-gold">+2.6</div>
+        <div class="p-ts">TS% 54.3</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('beattie')" id="btn-beattie">+</button>
+    </div>
+
+
+
+    <div class="player-row" data-id="chaikin" draggable="true" ondragstart="dragStart(event, 'chaikin')" ondragend="dragEnd(event)" onclick="openDrawer('chaikin')">
+      <div class="p-num">10</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Alex Chaikin</div>
+        <div class="p-sub">6-5 · Jr · SG</div>
+      </div>
+      <div>
+        <div class="p-bpr c-red">-0.5</div>
+        <div class="p-ts">TS% 57.1</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('chaikin')" id="btn-chaikin">+</button>
+    </div>
+
+
+    <div class="player-row" data-id="burke" draggable="true" ondragstart="dragStart(event, 'burke')" ondragend="dragEnd(event)" onclick="openDrawer('burke')">
+      <div class="p-num">20</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Aidan Burke</div>
+        <div class="p-sub">6-3 · Sr · SG/SF</div>
+      </div>
+      <div>
+        <div class="p-bpr c-muted">0.0</div>
+        <div class="p-ts">TS% 57.0</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('burke')" id="btn-burke">+</button>
+    </div>
+
+    <div class="player-row" data-id="vance" draggable="true" ondragstart="dragStart(event, 'vance')" ondragend="dragEnd(event)" onclick="openDrawer('vance')">
+      <div class="p-num">13</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Jaden Vance</div>
+        <div class="p-sub">6-6 · So · SF</div>
+      </div>
+      <div>
+        <div class="p-bpr c-muted">+0.7</div>
+        <div class="p-ts">TS% 54.9</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('vance')" id="btn-vance">+</button>
+    </div>
+
+    <div class="player-row" data-id="vukicevic" draggable="true" ondragstart="dragStart(event, 'vukicevic')" ondragend="dragEnd(event)" onclick="openDrawer('vukicevic')">
+      <div class="p-num">33</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Dimitrije Vukicevic</div>
+        <div class="p-sub">7-0 · So · C</div>
+      </div>
+      <div>
+        <div class="p-bpr c-red">-1.2</div>
+        <div class="p-ts">TS% 60.8</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('vukicevic')" id="btn-vukicevic">+</button>
+    </div>
+
+
+    <div class="player-row" data-id="pendleton" draggable="true" ondragstart="dragStart(event, 'pendleton')" ondragend="dragEnd(event)" onclick="openDrawer('pendleton')">
+      <div class="p-num">4</div>
+        <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Cade Pendleton</div>
+        <div class="p-sub">6-10 · Sr · C/PF</div>
+      </div>
+      <div>
+        <div class="p-bpr c-red">-2.9</div>
+        <div class="p-ts">TS% 35.9</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('pendleton')" id="btn-pendleton">+</button>
+    </div>
+
+
+    <div class="player-row" data-id="brooks" draggable="true" ondragstart="dragStart(event, 'brooks')" ondragend="dragEnd(event)" onclick="openDrawer('brooks')">
+      <div class="p-num">11</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name">Jasen Brooks</div>
+        <div class="p-sub">6-0 · Jr · PG/SG · 4.2 MPG</div>
+      </div>
+      <div>
+        <div class="p-bpr c-muted">+0.2</div>
+        <div class="p-ts">TS% 50.0</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('brooks')" id="btn-brooks">+</button>
+    </div>
+
+    <div class="group-label" style="color: var(--gold);">New Additions</div>
+
+    <div class="player-row" data-id="dotson" draggable="true" ondragstart="dragStart(event, 'dotson')" ondragend="dragEnd(event)" onclick="openDrawer('dotson')">
+      <div class="p-num" style="color: var(--gold);">4</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name new-player">Kayde Dotson <span style="font-size:8px; background:var(--gold-tint); color:var(--gold-dim); border-radius:2px; padding:1px 4px; margin-left:4px;">MVC</span></div>
+        <div class="p-sub">6-1 · Jr · PG/SG · Loyola Chicago</div>
+      </div>
+      <div>
+        <div class="p-bpr c-gold">+1.8</div>
+        <div class="p-ts">TS% 56.1</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('dotson')" id="btn-dotson">+</button>
+    </div>
+
+    <div class="player-row" data-id="suutela" draggable="true" ondragstart="dragStart(event, 'suutela')" ondragend="dragEnd(event)" onclick="openDrawer('suutela')">
+      <div class="p-num" style="color: var(--gold);">37</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name new-player">Olavi Suutela</div>
+        <div class="p-sub">6-10 · So · C/PF · Oregon St.</div>
+      </div>
+      <div>
+        <div class="p-bpr c-red">-1.7</div>
+        <div class="p-ts">TS% 63.7</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('suutela')" id="btn-suutela">+</button>
+    </div>
+
+    <div class="player-row" data-id="barno" draggable="true" ondragstart="dragStart(event, 'barno')" ondragend="dragEnd(event)" onclick="openDrawer('barno')">
+      <div class="p-num" style="color: var(--gold);">1</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name new-player">Rahmir Barno <span style="font-size:8px; background:var(--gold-tint); color:var(--gold-dim); border-radius:2px; padding:1px 4px; margin-left:4px;">ASUN</span></div>
+        <div class="p-sub">6-0 · Jr · PG · FGCU</div>
+      </div>
+      <div>
+        <div class="p-bpr c-muted">+0.3</div>
+        <div class="p-ts">TS% 50.5</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('barno')" id="btn-barno">+</button>
+    </div>
+
+    <div class="player-row" data-id="johnson" draggable="true" ondragstart="dragStart(event, 'johnson')" ondragend="dragEnd(event)" onclick="openDrawer('johnson')">
+      <div class="p-num" style="color: var(--gold);">3</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name new-player">Jordan Johnson <span style="font-size:8px; background:var(--gold-tint); color:var(--gold-dim); border-radius:2px; padding:1px 4px; margin-left:4px;">JUCO</span></div>
+        <div class="p-sub">6-3 · Jr · PG/SG · Calhoun CC</div>
+      </div>
+      <div>
+        <div class="p-bpr c-gold">+1.2</div>
+        <div class="p-ts">Base: 6.8 PPG · 38.0% 3PT</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('johnson')" id="btn-johnson">+</button>
+    </div>
+
+        <div class="player-row" data-id="eaglestaff" draggable="true" ondragstart="dragStart(event, 'eaglestaff')" ondragend="dragEnd(event)" onclick="openDrawer('eaglestaff')">
+      <div class="p-num" style="color: var(--gold);">5</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name new-player">Treysen Eaglestaff <span style="font-size:8px; background:var(--gold-tint); color:var(--gold-dim); border-radius:2px; padding:1px 4px; margin-left:4px;">B12</span></div>
+        <div class="p-sub">6-6 · Sr · SG/SF · West Virginia</div>
+      </div>
+      <div>
+        <div class="p-bpr c-green">+6.8</div>
+        <div class="p-ts">TS% 52.7</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('eaglestaff')" id="btn-eaglestaff">+</button>
+    </div>
+
+    <div class="player-row" data-id="holmes" draggable="true" ondragstart="dragStart(event, 'holmes')" ondragend="dragEnd(event)" onclick="openDrawer('holmes')">
+      <div class="p-num" style="color: var(--gold);">15</div>
+      <div class="drag-handle">⠿</div>
+      <div class="p-info">
+        <div class="p-name new-player">Jake Holmes <span style="font-size:8px; background:var(--gold-tint); color:var(--gold-dim); border-radius:2px; padding:1px 4px; margin-left:4px;">NZ NBL</span></div>
+        <div class="p-sub">6-8 · Fr · PF/SF · Canterbury Rams</div>
+      </div>
+      <div>
+        <div class="p-bpr c-gold">+0.5</div>
+        <div class="p-ts">TS% 58.2</div>
+      </div>
+      <button class="add-btn" onclick="event.stopPropagation(); addToNextSlot('holmes')" id="btn-holmes">+</button>
+    </div>
+
+    <div class="group-label">Watchlist</div>
+    <div id="watchlist-roster"></div>
+    <div class="group-label">Transfer Portal</div>
+    <div id="portal-roster"></div>
+
+  </div><!-- /roster-panel -->
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+
+    <!-- TAB BAR -->
+    <div class="tab-bar" style="margin-top:20px;">
+      <button class="tab-btn active" onclick="switchTab('standard')">5-Man Lineup</button>
+      <button class="tab-btn" onclick="switchTab('nineman')">9-Man Rotation</button>
+      <button class="tab-btn" onclick="switchTab('season')" id="tab-btn-season">◷ Season Update</button>
+      <button class="tab-btn" onclick="switchTab('portal')">Transfer Portal</button>
+    </div>
+
+    <div class="lineup-score-controls" id="lineup-score-controls">
+      <button type="button" id="conf-adj-btn" class="conf-adjustment" aria-pressed="true"
+        onclick="toggleConferenceAdjustment()">Big West BPM adjustment <span id="conf-adj-state">On</span></button>
+      <div class="prpg-control">
+        <label for="prpg-weight">PRPG! weight</label>
+        <input type="range" class="minutes-slider" id="prpg-weight" min="0" max="100" value="50"
+          aria-valuetext="50% PRPG!, 50% BPM" oninput="updatePrpgWeight(this)">
+        <output id="prpg-blend" for="prpg-weight">50% BPM · 50% PRPG!</output>
+      </div>
+    </div>
+
+    <!-- STANDARD TAB -->
+    <div class="tab-panel active" id="tab-standard">
+
+    <!-- PRESETS -->
+    <div class="presets">
+      <div class="section-title">Projected Starting Lineups</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+        <button class="preset-btn" onclick="loadPreset('base')">▶ Base Lineup (Proj. Starters)</button>
+        <button class="preset-btn" onclick="loadPreset('shooting')">▶ Max Spacing</button>
+        <button class="preset-btn" onclick="loadPreset('big')">▶ Big/Physical</button>
+        <button class="preset-btn" onclick="loadPreset('small')">▶ Small Ball</button>
+        <button class="preset-btn" onclick="loadPreset('defense')">▶ Rebounding / Defense</button>
+        <button class="preset-btn" onclick="loadPreset('best')" >★ Best Analytical Lineup</button>
+        <button class="preset-btn" onclick="clearLineup()">✕ Clear</button>
+        <button class="preset-btn" onclick="showSaveInput()" id="save-lineup-btn" style="border-color:var(--green);color:var(--green);">↓ Save Lineup</button>
+      </div>
+      <!-- Save input (hidden by default) -->
+      <div id="save-input-row" style="display:none; align-items:center; gap:8px; margin-top:8px; padding: 0 2px;">
+        <input class="save-lineup-input" id="save-lineup-name" placeholder="Name new lineup" maxlength="30"
+          onkeydown="if(event.key==='Enter') saveCurrentLineup(); if(event.key==='Escape') hideSaveInput();" />
+        <button class="preset-btn" onclick="saveCurrentLineup()" style="border-color:var(--green);color:var(--green);">Save</button>
+        <button class="preset-btn" onclick="hideSaveInput()">Cancel</button>
+      </div>
+      <!-- Saved lineups row -->
+      <div class="saved-presets-row" id="saved-presets-row"></div>
+
+    </div>
+
+<!-- LINEUP BUILDER -->
+    <div class="lineup-builder">
+      <div class="section-title">Active Lineup Builder <span style="color:var(--muted); font-size:9px;">(drag players into slots · or use + button)</span></div>
+      <div class="court" id="court">
+        <div class="slot" id="slot-0" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropOnSlot(event, 0)"><span class="slot-empty-text">PG</span></div>
+        <div class="slot" id="slot-1" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropOnSlot(event, 1)"><span class="slot-empty-text">SG</span></div>
+        <div class="slot" id="slot-2" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropOnSlot(event, 2)"><span class="slot-empty-text">SF</span></div>
+        <div class="slot" id="slot-3" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropOnSlot(event, 3)"><span class="slot-empty-text">PF</span></div>
+        <div class="slot" id="slot-4" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropOnSlot(event, 4)"><span class="slot-empty-text">C</span></div>
+      </div>
+
+      <!-- ROW 1: BPM + Tier -->
+      <div class="lineup-rating" id="lineup-rating" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom:6px;">
+        <div class="rating-col">
+          <div class="rating-label">Starting 5 Score</div>
+          <div class="rating-val c-muted" id="rating-bpr">—</div>
+          <div class="rating-desc" id="rating-desc">Add 5 players to generate rating</div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-label">Rotation Score</div>
+          <div class="rating-val c-muted" id="rating-rotation">—</div>
+          <div class="rating-desc" id="rating-rotation-desc">Minutes-weighted · full roster</div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-label">Tier</div>
+          <div class="rating-val" id="rating-tier" style="font-size:14px; padding-top:4px;">—</div>
+          <div class="rating-desc" id="rating-tier-desc">Big West projection</div>
+        </div>
+      </div>
+
+      <!-- ROW 2: Projected Stats (min-weighted) -->
+      <div class="projection-heading" style="font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); padding: 6px 0 4px; border-top:1px solid var(--border);">
+        ⬡ Projected Stats — minutes-weighted
+      </div>
+      <div class="lineup-rating" id="lineup-proj-stats" style="grid-template-columns: repeat(10, 1fr); gap:2px;">
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">Off Rtg</div>
+          <div class="rating-val c-muted" id="rating-off" style="font-size:16px;">—</div>
+          <div class="rating-desc" id="rating-off-desc" style="font-size:7px;">pts/100</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">Def Rtg</div>
+          <div class="rating-val c-muted" id="rating-drtg" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">pts allowed/100</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">eFG%</div>
+          <div class="rating-val c-muted" id="rating-efg" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">effective FG%</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">3PT%</div>
+          <div class="rating-val c-muted" id="rating-3pct" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">by projected attempts</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">3P Rate</div>
+          <div class="rating-val c-muted" id="rating-3pr" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">% FGA from 3</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">Foul Rate</div>
+          <div class="rating-val c-muted" id="rating-ftr" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">FTA/100 FGA</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px; display:none;">
+          <div class="rating-label" style="font-size:7px;">Ast Rate</div>
+          <div class="rating-val c-muted" id="rating-arate" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">assist rate %</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">TO Rate</div>
+          <div class="rating-val c-muted" id="rating-torate" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">turnover rate %</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">DReb%</div>
+          <div class="rating-val c-muted" id="rating-dreb" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">def rebound %</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px;">
+          <div class="rating-label" style="font-size:7px;">OReb%</div>
+          <div class="rating-val c-muted" id="rating-oreb" style="font-size:16px;">—</div>
+          <div class="rating-desc" style="font-size:7px;">off rebound %</div>
+        </div>
+        <div class="rating-col" style="padding:6px 4px; display:none;">
+          <!-- spacing score kept for internal logic, hidden -->
+          <div id="rating-space" style="display:none;"></div>
+          <div id="rating-spacers" style="display:none;"></div>
+          <div id="rating-space-desc" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="projection-source" id="standard-projection-source"></p>
+    <!-- BENCH MINUTES -->
+    <div class="analysis-panel" style="border-top: 1px solid var(--border); padding-top: 20px;">
+      <div class="section-title">Rotation Minutes Planner <span style="color:var(--muted); font-size:9px;">(40 min per position · drag to adjust)</span></div>
+      <div id="bench-section">
+        <div style="color: var(--muted); font-size: 11px; font-family: 'Crimson Pro', serif; font-style: italic;">Fill the starting lineup above to generate the minutes planner.</div>
+      </div>
+      <div id="projected-stats-inline"></div>
+    </div>
+
+    </div><!-- /tab-standard -->
+
+    <!-- 9-MAN ROTATION TAB -->
+    <div class="tab-panel" id="tab-nineman">
+      <div class="nine-man-total-bar">
+        <div>
+          <div class="nine-man-total-label">Total Minutes</div>
+          <div>
+            <span class="nine-man-total-val" id="nm-total-val" style="color:var(--green);">0</span>
+            <span style="font-size:11px;color:var(--muted);"> / 200</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="preset-btn" onclick="nmClear()" style="font-size:9px;">✕ Clear</button>
+          <button class="preset-btn" onclick="nmLoadPreset('base')" style="font-size:9px; border-color:var(--gold);color:var(--gold);">▶ Base Rotation</button>
+          <button class="preset-btn" onclick="nmLoadPreset('adding')" style="font-size:9px; border-color:var(--green);color:var(--green);">▶ Adding Rotation Player</button>
+          <button class="preset-btn" onclick="nmShowSaveInput()" style="font-size:9px; border-color:var(--green);color:var(--green);">↓ Save Rotation</button>
+        </div>
+      </div>
+
+      <div class="nine-man-grid" id="nm-grid"></div>
+      <!-- Save input -->
+      <div id="nm-save-input-row" style="display:none; align-items:center; gap:8px; margin-bottom:8px;">
+        <input class="save-lineup-input" id="nm-save-name" placeholder="Name new lineup" maxlength="30"
+          onkeydown="if(event.key==='Enter') nmSaveRotation(); if(event.key==='Escape') nmHideSaveInput();" />
+        <button class="preset-btn" onclick="nmSaveRotation()" style="border-color:var(--green);color:var(--green);">Save</button>
+        <button class="preset-btn" onclick="nmHideSaveInput()">Cancel</button>
+      </div>
+      <!-- Saved 9-man rotations -->
+      <div class="saved-presets-row" id="nm-saved-row"></div>
+
+      <!-- BPM + Tier row -->
+      <div class="lineup-rating" style="grid-template-columns: 1fr 1fr; margin-bottom:10px; border-top:1px solid var(--border); padding-top:10px;">
+        <div class="rating-col">
+          <div class="rating-label">Rotation Score</div>
+          <div class="rating-val c-muted" id="nm-bpm">—</div>
+          <div class="rating-desc" id="nm-bpm-desc">Add players to calculate</div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-label">Tier</div>
+          <div class="rating-val" id="nm-tier" style="font-size:14px; padding-top:4px;">—</div>
+          <div class="rating-desc" id="nm-tier-desc">Big West projection</div>
+        </div>
+      </div>
+
+      <!-- Projected stats — same stats panel reused -->
+      <div class="projection-heading" style="font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); padding:6px 0 4px; border-top:1px solid var(--border);">
+        ⬡ Projected Stats — minutes-weighted
+      </div>
+      <div class="lineup-rating" id="nm-proj-stats" style="grid-template-columns: repeat(10, 1fr); gap:2px;">
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">Off Rtg</div><div class="rating-val c-muted" id="nm-ortg" style="font-size:16px;">—</div><div style="font-size:7px;color:var(--muted);" id="nm-ortg-range"></div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">Def Rtg</div><div class="rating-val c-muted" id="nm-drtg" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">eFG%</div><div class="rating-val c-muted" id="nm-efg" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">3PT%</div><div class="rating-val c-muted" id="nm-3pct" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">3P Rate</div><div class="rating-val c-muted" id="nm-3pr" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">Foul Rate</div><div class="rating-val c-muted" id="nm-ftr" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px; display:none;"><div class="rating-label" style="font-size:7px;">Ast Rate</div><div class="rating-val c-muted" id="nm-arate" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">TO Rate</div><div class="rating-val c-muted" id="nm-torate" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">DReb%</div><div class="rating-val c-muted" id="nm-dreb" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">OReb%</div><div class="rating-val c-muted" id="nm-oreb" style="font-size:16px;">—</div></div>
+        <div class="rating-col" style="padding:6px 4px;"><div class="rating-label" style="font-size:7px;">Net Rtg</div><div class="rating-val c-muted" id="nm-net" style="font-size:16px;">—</div></div>
+      </div>
+      <p class="projection-source" id="nineman-projection-source"></p>
+      <!-- Minutes Summary -->
+      <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:10px;">
+        <div style="font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); margin-bottom:8px;">⬡ Minutes Summary</div>
+        <div id="nm-minutes-summary" style="display:flex; flex-wrap:wrap; gap:4px;"></div>
+      </div>
+
+    </div><!-- /tab-nineman -->
+
+    <!-- SEASON UPDATE TAB -->
+    <div class="tab-panel" id="tab-season">
+      <div style="padding:16px 0 8px;">
+        <div style="font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">
+          ◷ 2026-27 Season Update — projection reweights as games accumulate</div>
+        <div style="font-size:10px;color:var(--muted);line-height:1.6;margin-bottom:14px;max-width:none;">
+          Enter current-season numbers as they come in. Each stat blends toward live production on its own
+          schedule — <strong>weight = GP / (GP + k)</strong>, where k is how many games that stat needs before it
+          outweighs the pre-season prior. Usage settles fast (k=5); shooting is slow (k=22). Blanks keep the prior.
+        </div>
+
+
+        <!-- GAME LOG -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:12px 13px;margin-bottom:14px;">
+          <div style="font-size:8px;letter-spacing:0.16em;text-transform:uppercase;color:var(--gold-dim);margin-bottom:4px;">
+            ⬢ Game log — enter a box score after each game</div>
+          <div style="font-size:9px;color:var(--muted);line-height:1.55;margin-bottom:10px;">
+            Everything a box score can produce (TS%, 3P%, USG%, TO rate, OReb%, DReb%, STL%, BLK%, FTR) is derived
+            here. Manual entries override the calculated stats. BPM and PRPG! are model outputs no box score contains —
+            those still come from the Barttorvik paste.
+          </div>
+          <div id="games-list" style="margin-bottom:11px;"></div>
+
+          <details>
+            <summary style="font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--gold-dim);cursor:pointer;padding:4px 0;">
+              ⊕ Add a game</summary>
+            <div style="padding:9px 0 0;">
+              <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;margin-bottom:9px;">
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">DATE</div>
+                  <input id="gm-date" type="date" style="font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">OPPONENT</div>
+                  <input id="gm-opp" type="text" placeholder="Cal Poly" style="width:130px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">OPP ADJ DE <span style="color:var(--gold-dim);">(opt)</span></div>
+                  <input id="gm-oppde" type="number" step="0.1" placeholder="104.0" style="width:70px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+              </div>
+
+              <div style="font-size:8px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;">
+                Opponent totals — required for possession-based rates</div>
+              <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px;">
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">PTS</div><input id="gm-o-pts" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">FGA</div><input id="gm-o-fga" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">3PA</div><input id="gm-o-tpa" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">FTA</div><input id="gm-o-fta" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">OR</div><input id="gm-o-orb" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">DR</div><input id="gm-o-drb" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+                <div><div style="font-size:8px;color:var(--muted);margin-bottom:2px;">TO</div><input id="gm-o-tov" type="number" step="any" style="width:54px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+              </div>
+
+              <div style="font-size:8px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);margin-bottom:4px;">
+                UCSD box score — paste rows</div>
+              <div style="font-size:9px;color:var(--muted);margin-bottom:5px;line-height:1.5;">
+                Header row first, player name in column one. Accepts <span style="font-family:'DM Mono',monospace;">MIN FGM FGA 3PM 3PA FTM FTA OR DR AST TO STL BLK</span>
+                — or combined <span style="font-family:'DM Mono',monospace;">FG / 3P / FT</span> cells like <span style="font-family:'DM Mono',monospace;">5-9</span>. Team totals are summed from these rows.
+              </div>
+              <textarea id="gm-box" rows="6" placeholder="Player&#9;MIN&#9;FG&#9;3P&#9;FT&#9;OR&#9;DR&#9;AST&#9;TO&#9;STL&#9;BLK&#10;Beath&#9;29&#9;6-11&#9;2-4&#9;3-4&#9;1&#9;7&#9;2&#9;1&#9;2&#9;1&#10;Eaglestaff&#9;31&#9;5-12&#9;3-8&#9;2-2&#9;2&#9;5&#9;4&#9;2&#9;1&#9;0"
+                style="width:100%;font-family:'DM Mono',monospace;font-size:10px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);resize:vertical;"></textarea>
+              <button class="preset-btn" onclick="addGame()" style="margin-top:7px;border-color:var(--green);color:var(--green);">Add game</button>
+            </div>
+          </details>
+        </div>
+
+        <!-- team anchor -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:11px 13px;margin-bottom:14px;">
+          <div style="font-size:8px;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">
+            Team anchor — auto-filled from the game log (k=12) · type to override</div>
+          <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+            <div><div style="font-size:8px;color:var(--muted);margin-bottom:3px;">TEAM GP</div>
+              <input id="ts-gp" type="number" min="0" onchange="teamSet('gp',this.value)" placeholder="0"
+                style="width:66px;font-family:'DM Mono',monospace;font-size:11px;padding:5px 7px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+            <div><div style="font-size:8px;color:var(--muted);margin-bottom:3px;">ADJ OE</div>
+              <input id="ts-oe" type="number" step="0.1" onchange="teamSet('adjOE',this.value)" placeholder="107.8"
+                style="width:80px;font-family:'DM Mono',monospace;font-size:11px;padding:5px 7px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+            <div><div style="font-size:8px;color:var(--muted);margin-bottom:3px;">ADJ DE</div>
+              <input id="ts-de" type="number" step="0.1" onchange="teamSet('adjDE',this.value)" placeholder="103.5"
+                style="width:80px;font-family:'DM Mono',monospace;font-size:11px;padding:5px 7px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);"></div>
+            <div id="season-anchor" style="font-size:10px;color:var(--text);padding-bottom:5px;"></div>
+          </div>
+        </div>
+
+        <!-- bulk paste -->
+        <details style="margin-bottom:14px;">
+          <summary style="font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--gold-dim);cursor:pointer;padding:5px 0;">
+            ⊕ Bulk paste from Barttorvik</summary>
+          <div style="padding:9px 0 0;">
+            <div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.5;">
+              Header row first, player name in column one. Tab or comma separated. Recognized headers:
+              <span style="font-family:'DM Mono',monospace;">GP · BPM · OBPM · DBPM · PRPG! · TS · USG · eFG · 3P% · AST · TO · OR · DR · BLK · STL · FTR</span>
+            </div>
+            <textarea id="season-paste" rows="5" placeholder="Player&#9;GP&#9;BPM&#9;TS&#9;USG&#9;TO&#9;OR&#9;DR&#9;STL&#9;BLK&#10;Beath&#9;8&#9;1.4&#9;57.2&#9;21.0&#9;13.1&#9;2.4&#9;16.8&#9;3.1&#9;1.2"
+              style="width:100%;font-family:'DM Mono',monospace;font-size:10px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);resize:vertical;"></textarea>
+            <button class="preset-btn" onclick="seasonPaste()" style="margin-top:7px;border-color:var(--green);color:var(--green);">Import</button>
+          </div>
+        </details>
+
+        <div style="display:flex;gap:7px;margin-bottom:10px;align-items:center;">
+          <button class="preset-btn" onclick="seasonClear()">✕ Reset to pre-season</button>
+          <span style="font-size:9px;color:var(--muted);">Saves automatically · % CUR is the mean weight on live production</span>
+        </div>
+
+        <div id="season-table" style="overflow-x:auto;"></div>
+      </div>
+    </div><!-- /tab-season -->
+
+    <!-- PORTAL TAB -->
+    <div class="tab-panel" id="tab-portal">
+      <div style="padding:16px 0 8px;">
+        <div style="font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">Transfer Portal · Barttorvik 2025–26</div>
+
+        <!-- Filters -->
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:flex-end;">
+          <div>
+            <div style="font-size:8px;color:var(--muted);margin-bottom:3px;letter-spacing:0.1em;">SEARCH</div>
+            <input id="portal-search" type="text" placeholder="Name or team..." oninput="renderPortal()"
+              style="font-family:'DM Mono',monospace;font-size:10px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);width:160px;">
+          </div>
+          <div>
+            <div style="font-size:8px;color:var(--muted);margin-bottom:3px;letter-spacing:0.1em;">CONF</div>
+            <select id="portal-conf" onchange="renderPortal()"
+              style="font-family:'DM Mono',monospace;font-size:10px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);">
+              <option value="">All</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:8px;color:var(--muted);margin-bottom:3px;letter-spacing:0.1em;">YEAR</div>
+            <select id="portal-yr" onchange="renderPortal()"
+              style="font-family:'DM Mono',monospace;font-size:10px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);">
+              <option value="">All</option>
+              <option value="Fr">Fr</option><option value="So">So</option>
+              <option value="Jr">Jr</option><option value="Sr">Sr</option><option value="Gr">Gr</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:8px;color:var(--muted);margin-bottom:3px;letter-spacing:0.1em;">SORT</div>
+            <select id="portal-sort" onchange="renderPortal()"
+              style="font-family:'DM Mono',monospace;font-size:10px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);">
+              <option value="adjBpr">BPM</option>
+              <option value="prpgi">PRPG!</option>
+              <option value="ts">TS%</option>
+              <option value="threePct">3PT%</option>
+              <option value="indDrtg">DRtg (low=good)</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:8px;color:var(--muted);margin-bottom:3px;letter-spacing:0.1em;">MIN BPM</div>
+            <input id="portal-min-bpm" type="number" value="-5" step="0.5" oninput="renderPortal()"
+              style="font-family:'DM Mono',monospace;font-size:10px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);width:70px;">
+          </div>
+          <div style="font-size:9px;color:var(--muted);align-self:center;" id="portal-count"></div>
+        </div>
+
+        <!-- Player list -->
+        <div id="portal-list" style="display:flex;flex-direction:column;gap:3px;max-height:60vh;overflow-y:auto;"></div>
+      </div>
+    </div><!-- /tab-portal -->
+
+    <!-- ANALYSIS -->
+    <div class="analysis-panel">
+      <div class="section-title">Lineup Analysis</div>
+      <div class="analysis-grid" id="analysis-grid">
+        <div class="analysis-card">
+          <div class="ac-title">Offensive Profile</div>
+          <div id="off-bars">
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">TS% Avg</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-ts" style="width:0%; background: var(--blue-light)"></div></div>
+              <div class="stat-bar-val" id="val-ts">—</div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">3PT Threats</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-3pt" style="width:0%; background: var(--green)"></div></div>
+              <div class="stat-bar-val" id="val-3pt">—</div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">Usage Bal.</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-usg" style="width:0%; background: var(--gold)"></div></div>
+              <div class="stat-bar-val" id="val-usg">—</div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">Assist Rate</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-ast" style="width:0%; background: var(--blue-light)"></div></div>
+              <div class="stat-bar-val" id="val-ast">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="analysis-card">
+          <div class="ac-title">Defensive Profile</div>
+          <div id="def-bars">
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">Rim Prot.</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-blk" style="width:0%; background: var(--red)"></div></div>
+              <div class="stat-bar-val" id="val-blk">—</div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">Ball Pressure</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-stl" style="width:0%; background: var(--yellow)"></div></div>
+              <div class="stat-bar-val" id="val-stl">—</div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">Reb. Rate</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-reb" style="width:0%; background: var(--gold)"></div></div>
+              <div class="stat-bar-val" id="val-reb">—</div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">Avg Height</div>
+              <div class="stat-bar-track"><div class="stat-bar-fill" id="bar-ht" style="width:0%; background: var(--muted)"></div></div>
+              <div class="stat-bar-val" id="val-ht">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="analysis-card" style="grid-column: 1 / -1;">
+          <div class="ac-title">Fit Assessment</div>
+          <div class="ac-body" id="fit-assessment">
+            Select players from the roster or load a preset lineup to generate a fit assessment.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BIG WEST CONTEXT -->
+    <div class="analysis-panel" style="border-top: 1px solid var(--border); padding-top: 20px; padding-bottom: 0;">
+      <div class="section-title">Big West Landscape — 2025-26 Season Data</div>
+
+      <!-- STANDINGS BAR -->
+      <div class="analysis-card" style="margin-bottom: 16px; border-top: 2px solid var(--gold);">
+        <div class="ac-title" style="color: var(--gold); margin-bottom: 14px;">Conference Standings · NetRtg &amp; Four Factors Context</div>
+        <div id="standings-table"></div>
+      </div>
+
+      <!-- UCSD IDENTITY CARD -->
+      <div class="analysis-card" style="margin-bottom: 16px; border-top: 2px solid var(--blue-light);">
+        <div class="ac-title" style="color: var(--blue-light);">UCSD 2025-26 Identity — What the Data Says</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <div style="font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:var(--green); margin-bottom:8px;">✓ Strengths</div>
+            <div class="ac-body">
+              <p style="margin-bottom:6px;"><strong>Defense was elite:</strong> 2nd in conf DE (100.4), 2nd in 3PT% allowed (31.9%), strong steal rate (10.8, tied 3rd).</p>
+              <p style="margin-bottom:6px;"><strong>Ball security:</strong> 3rd in conf TO% (17.0) — Beattie and Beath protect the ball.</p>
+              <p><strong>Net rating +4.30</strong> was 3rd in conference — genuinely a top-3 team on both sides of the ball when healthy.</p>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:var(--red); margin-bottom:8px;">✗ Problems to Fix</div>
+            <div class="ac-body">
+              <p style="margin-bottom:6px;"><strong>Worst 3PT% in conference (30.9%)</strong> — spacing crisis was real. Chaikin is the only reliable shooter returning.</p>
+              <p style="margin-bottom:6px;"><strong>Dead last in OReb% (11th, 25.6%)</strong> — no second-chance points. Suutela (OR% 7.4) directly addresses this.</p>
+              <p><strong>Slow tempo (69.6, 10th)</strong> — CSUN pushed pace and exploited it 3 times. Need more athleticism in transition.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPPONENT ROSTER CARDS -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+        <div class="analysis-card" style="border-top: 2px solid var(--green);">
+          <div class="ac-title" style="color: var(--green);">🏆 Hawaii · 24-9 · +5.58 NetRtg</div>
+          <div id="hawaii-rows"></div>
+          <div class="minutes-total-row" style="margin-top:8px;">
+            <div class="minutes-total-label">Top-5 BPM Sum</div>
+            <div class="minutes-total-val c-green">+11.1</div>
+          </div>
+          <div style="font-size:10px; color:var(--muted); margin-top:6px; font-family:'Crimson Pro',serif; font-style:italic;">Johnson (+6.7) is irreplaceable. If he's gone, Hawaii drops significantly. Watch portal activity.</div>
+        </div>
+        <div class="analysis-card" style="border-top: 2px solid var(--blue-light);">
+          <div class="ac-title" style="color: var(--blue-light);">① UC Irvine · 23-12 · +5.71 NetRtg</div>
+          <div id="uci-rows"></div>
+          <div class="minutes-total-row" style="margin-top:8px;">
+            <div class="minutes-total-label">Top-5 BPM Sum</div>
+            <div class="minutes-total-val c-blue">+12.6</div>
+          </div>
+          <div style="font-size:10px; color:var(--muted); margin-top:6px; font-family:'Crimson Pro',serif; font-style:italic;">Best defense in the conf (95.7 DE). Evans + Dixon is the deepest 1-2 in the league. Most complete roster.</div>
+        </div>
+        <div class="analysis-card" style="border-top: 2px solid var(--red);">
+          <div class="ac-title" style="color: var(--red);">⚠ CSUN · 20-14 · Beat UCSD 3x</div>
+          <div id="csun-rows"></div>
+          <div class="minutes-total-row" style="margin-top:8px;">
+            <div class="minutes-total-label">Top-5 BPM Sum</div>
+            <div class="minutes-total-val" style="color:var(--yellow)">+4.9</div>
+          </div>
+          <div style="font-size:10px; color:var(--muted); margin-top:6px; font-family:'Crimson Pro',serif; font-style:italic;">Fastest pace in conf (76.0). Attacked UCSD's OReb weakness and slow tempo repeatedly.</div>
+        </div>
+      </div>
+
+
+    </div>
+
+  </div>
+
+  </div><!-- /layout -->
+
+<!-- PLAYER DRAWER -->
+<div class="drawer" id="drawer">
+  <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  <div class="eyebrow" id="drawer-tag">Player Profile</div>
+  <div class="drawer-name" id="drawer-name">—</div>
+  <div class="drawer-sub" id="drawer-sub">—</div>
+  <div id="drawer-teamctx" style="padding:10px 0;border-bottom:1px solid var(--border);margin-bottom:10px;"></div>
+  <div class="drawer-stats" id="drawer-stats"></div>
+  <div id="drawer-ratings-forecast"></div>
+  <div class="drawer-note" id="drawer-note"></div>
+</div>
+
+<template id="projection-conference-template">
+  <div class="forecast-conference" role="group" aria-label="Projection conference">
+    <button type="button" class="preset-btn" data-conference="big-west" aria-pressed="true">Big West</button>
+    <button type="button" class="preset-btn" data-conference="wcc" aria-pressed="false">WCC</button>
+  </div>
+</template>
+
+<script src="lineup.js?v=20261115"></script>
+</body>
+</html>

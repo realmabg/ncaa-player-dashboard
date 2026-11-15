@@ -62,3 +62,37 @@ def projection_values(snapshot, name, team, mode):
     if player is None:
         return [None] * len(snapshot["stats"])
     return player[mode]
+
+
+def lineup_forecast_payload(season, team):
+    """Package the Ratings forecast for one team's current roster."""
+    snapshot = projections_for_season(season)
+    if snapshot is None:
+        return None
+    wcc_path = Path(__file__).with_name("ucsd_wcc_forecast.json")
+    wcc = json.loads(wcc_path.read_text(encoding="utf-8")) if team == "UC San Diego" and wcc_path.is_file() else {}
+    same_cutoff = wcc.get("season") == season and wcc.get("through") == snapshot["updated_through"]
+    stats = snapshot["stats"]
+    players = {}
+    wcc_players = {}
+    for key, player_id in snapshot["names"].get(team, {}).items():
+        player = snapshot["players"].get(str(player_id))
+        if player is None:
+            continue
+        values = player["updated"]
+        if all(value is None for value in values):
+            continue
+        players[key] = dict(zip((stat["key"] for stat in stats), values, strict=True))
+        wcc_values = wcc["players"].get(str(player_id)) if same_cutoff else None
+        if wcc_values and any(value is not None for value in wcc_values.values()):
+            wcc_players[key] = wcc_values
+    return {
+        "through": snapshot["updated_through"],
+        "stats": [
+            {"key": stat["key"], "label": STAT_HEADERS[stat["key"]][0],
+             "unit": "percent" if stat["key"] in PERCENT_DISPLAY else stat["unit"]}
+            for stat in stats
+        ],
+        "players": players,
+        "wcc": wcc_players,
+    }

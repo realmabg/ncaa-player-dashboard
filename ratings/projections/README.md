@@ -34,3 +34,8 @@ in the audit directory. The default website output is
 `ratings/projections/player_projections.json`. Use `--output` to write a review
 copy elsewhere. Publish the refreshed snapshot with the regular GitHub Pages
 build.
+
+The exporter also writes `ucsd_wcc_forecast.json` beside the main snapshot.
+It reruns the UC San Diego roster with WCC as the destination conference, using
+the same season and games as the Ratings forecast. The lineup builder compares
+these scenarios when both snapshots have the same cutoff.
