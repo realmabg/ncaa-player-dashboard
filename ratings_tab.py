@@ -1,7 +1,9 @@
 """The daily BPM and RAPM leaderboard in the Shiny dashboard."""
 import asyncio
 import html
+import json
 from io import BytesIO
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -47,13 +49,22 @@ def ratings_tab_ui():
                     {"class": "triton-filter-row"},
                     ratings_filter(ui.input_text("ratings_search", "Search player",
                                                  placeholder="Search a player...")),
+                    ratings_filter(ui.input_select("ratings_conference", "Conference",
+                                                   choices={"": "Any conference"})),
                     ratings_filter(ui.input_select("ratings_team", "Team", choices={"": "Any team"})),
-                    ratings_filter(ui.input_numeric("ratings_bpm_min", "Min. BPM minutes",
-                                                     DEFAULT_BPM_MINUTES, min=0, step=1)),
-                    ratings_filter(ui.input_numeric("ratings_rapm_min", "Min. RAPM possessions",
-                                                     DEFAULT_RAPM_POSSESSIONS, min=0, step=1)),
                     ratings_filter(ui.input_select("ratings_limit", "Board length",
                                                    choices=BOARD_LENGTHS, selected="100")),
+                ),
+                ui.div(
+                    {"class": "triton-filter-row triton-filter-row--second"},
+                    ratings_filter(ui.input_numeric("ratings_bpm_min", "Min. minutes played",
+                                                     DEFAULT_BPM_MINUTES, min=0, step="any")),
+                    ratings_filter(ui.input_numeric("ratings_bpm_max", "Max. minutes played",
+                                                     None, min=0, step="any")),
+                    ratings_filter(ui.input_numeric("ratings_rapm_min", "Min. RAPM possessions",
+                                                     DEFAULT_RAPM_POSSESSIONS, min=0, step=1)),
+                    ui.div("Minutes are season totals from BPM box scores. Leave the maximum blank for no cap.",
+                           class_="triton-results-note"),
                 ),
             ),
             ui.div(
@@ -101,6 +112,11 @@ def read_ratings(raw):
         raise ValueError("Ratings CSV is empty or has missing columns")
     for column in ("bpm", "rapm", "bpm_minutes", "rapm_possessions"):
         frame[column] = pd.to_numeric(frame[column])
+    # The 2026–27 Torvik conference list is keyed by the NCAA team names used in the CSV.
+    conference_path = Path(__file__).with_name("www") / "ratings_conferences.json"
+    by_season = json.loads(conference_path.read_text(encoding="utf-8"))
+    conferences = by_season.get(str(int(frame.iloc[0]["season"])), {})
+    frame["conference"] = frame["team"].map(conferences)
     return frame
 
 
@@ -138,10 +154,13 @@ def ratings_tab_server(input, session):
             return
         frame = download_ratings.result()
         teams = sorted(frame["team"].dropna().unique())
+        conferences = sorted(frame["conference"].dropna().unique())
         with reactive.isolate():
             selected = input.ratings_team()
         ui.update_select("ratings_team", choices={"": "Any team", **{team: team for team in teams}},
                          selected=selected if selected in teams else "", session=session)
+        ui.update_select("ratings_conference", choices={"": "Any conference", **{name: name for name in conferences}},
+                         selected="", session=session)
         snapshot.set(frame)
 
     @render.ui
@@ -189,13 +208,18 @@ def ratings_tab_server(input, session):
             return None, 0
 
         bpm_min = input.ratings_bpm_min()
+        bpm_max = input.ratings_bpm_max()
         rapm_min = input.ratings_rapm_min()
         bpm_min = DEFAULT_BPM_MINUTES if bpm_min is None else max(0, bpm_min)
         rapm_min = DEFAULT_RAPM_POSSESSIONS if rapm_min is None else max(0, rapm_min)
-        frame = frame.loc[
-            frame["bpm_minutes"].fillna(0).ge(bpm_min)
-            & frame["rapm_possessions"].fillna(0).ge(rapm_min)
-        ]
+        minutes = frame["bpm_minutes"]
+        eligible = minutes.fillna(0).ge(bpm_min) & frame["rapm_possessions"].fillna(0).ge(rapm_min)
+        if bpm_max is not None:
+            eligible &= minutes.le(max(0, bpm_max))
+        conference = input.ratings_conference()
+        if conference:
+            eligible &= frame["conference"].eq(conference)
+        frame = frame.loc[eligible]
         team = input.ratings_team()
         if team:
             frame = frame.loc[frame["team"].eq(team)]
