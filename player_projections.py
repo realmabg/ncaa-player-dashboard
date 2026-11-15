@@ -1,9 +1,11 @@
-"""Render the verified 2026–27 projections on D-I player profiles."""
+"""Render the verified 2026–27 projections on the Ratings tab."""
 from functools import lru_cache
 import json
 from pathlib import Path
 
 from shiny import ui
+
+from projection_keys import name_key
 
 
 @lru_cache(maxsize=1)
@@ -24,17 +26,18 @@ def format_projection(value, unit):
     return f"{100 * value:.2f}"
 
 
-def player_projections_panel(name, team):
+def player_projections_panel(name, team, season):
     snapshot = load_projections()
-    if snapshot is None:
-        return None
-    player = snapshot["players"].get(team, {}).get(name)
+    if snapshot is None or snapshot["season"] != season:
+        return ui.div("Projections are unavailable for this season.", class_="triton-empty")
+    player_id = snapshot["names"].get(team, {}).get(name_key(name))
+    player = snapshot["players"].get(str(player_id))
     rates = player["rates"] if player else [(None, None)] * len(snapshot["stats"])
-    heading = f"{snapshot['season']} Projections"
-    if player:
-        heading += f" · {player['team']}"
+    season_label = f"{season - 1}–{season % 100:02d}"
+    forecast_team = player["team"] if player else team
     return ui.tags.details(
-        ui.tags.summary(heading, class_="col-title"),
+        ui.tags.summary(f"{name} · {forecast_team} · {season_label} projections",
+                        class_="triton-title"),
         ui.div(
             ui.tags.table(
                 ui.tags.thead(
@@ -56,9 +59,10 @@ def player_projections_panel(name, team):
                     )
                     for stat, (preseason, updated) in zip(snapshot["stats"], rates, strict=True)
                 ]),
-                aria_label=f"{snapshot['season']} player projections",
+                aria_label=f"{name} player projections",
             ),
             class_="player-projections-scroll",
         ),
-        class_="player-projections",
+        class_="player-projections triton-table-card",
+        open=True,
     )

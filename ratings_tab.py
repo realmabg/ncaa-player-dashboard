@@ -1,11 +1,14 @@
 """The daily BPM and RAPM leaderboard in the Shiny dashboard."""
 import asyncio
 import html
+import json
 from io import BytesIO
 from urllib.request import Request, urlopen
 
 import pandas as pd
 from shiny import reactive, render, ui
+
+from player_projections import player_projections_panel
 
 CSV_URL = (
     "https://raw.githubusercontent.com/Siddhu-S/ncaa-player-dashboard/"
@@ -59,6 +62,7 @@ def ratings_tab_ui():
                 ui.a("Open CSV", href=CSV_URL, target="_blank", rel="noopener",
                      class_="triton-results-note ratings-csv-link"),
             ),
+            ui.output_ui("ratings_projections"),
             ui.output_ui("ratings_table"),
         ),
     )
@@ -177,6 +181,15 @@ def ratings_tab_server(input, session):
         return "" if rows is None else f"{len(rows):,} of {total:,} matching players"
 
     @render.ui
+    @reactive.event(input.ratings_projection_player)
+    def ratings_projections():
+        name, team = input.ratings_projection_player()
+        frame = snapshot.get()
+        if frame is None or not (frame["player_name"].eq(name) & frame["team"].eq(team)).any():
+            return None
+        return player_projections_panel(name, team, int(frame.iloc[0]["season"]))
+
+    @render.ui
     def ratings_table():
         rows, _ = ratings_rows()
         if rows is None:
@@ -199,7 +212,7 @@ def render_ratings_board(rows, sort_column, ascending):
         click = f"Shiny.setInputValue('ratings_sort_click','{column}',{{priority:'event'}})"
         parts.append(f'<th scope="col"{sort_attr}><button type="button" onclick="{click}">'
                      f"{label}{marker}</button></th>")
-    parts.append("</tr></thead><tbody>")
+    parts.append('<th scope="col">Projections</th></tr></thead><tbody>')
     for rank, record in enumerate(rows.itertuples(index=False), start=1):
         player = html.escape(str(record.player_name)) if pd.notna(record.player_name) else "—"
         team = html.escape(str(record.team)) if pd.notna(record.team) else "—"
@@ -208,6 +221,17 @@ def render_ratings_board(rows, sort_column, ascending):
         for value in (record.rapm, record.bpm):
             score = f"{value:+.2f}" if pd.notna(value) else "—"
             parts.append(f'<td><span class="triton-war-value">{score}</span></td>')
+        if pd.notna(record.player_name) and pd.notna(record.team):
+            selection = json.dumps([record.player_name, record.team])
+            click = f"Shiny.setInputValue('ratings_projection_player',{selection},{{priority:'event'}});"
+            click += "document.getElementById('ratings_projections').scrollIntoView({block:'start'});"
+            parts.append(
+                f'<td><button type="button" class="ratings-projection-button" '
+                f'aria-label="View projections for {html.escape(str(record.player_name), quote=True)}" '
+                f'onclick="{html.escape(click, quote=True)}">View</button></td>'
+            )
+        else:
+            parts.append("<td></td>")
         parts.append("</tr>")
     parts.append("</tbody></table></div>")
     return "".join(parts)

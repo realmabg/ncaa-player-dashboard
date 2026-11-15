@@ -94,9 +94,9 @@ Missing ratings are blank. The CSV is accessible from the public GitHub reposito
 
 ## Player projections
 
-The D-I player profile shows the preseason and rest-of-season skill projections
-for 2026–27. Existing profile stats are for 2025–26. The projection table
-labels the forecast season and destination school. Shooting and opportunity
+The Ratings tab shows preseason and rest-of-season projections for 2026–27.
+Choose **View** in a player’s Projections column to open the table above the
+leaderboard. The table labels the forecast season and destination school. Shooting and opportunity
 shares display as percentages, counting rates display per 100 of the labeled
 exposure, and FTA/FGA displays as a ratio.
 
@@ -121,8 +121,7 @@ environment. Supply these inputs for the same season:
 ```
 
 The wrapper calls the original exporter from the model workspace with
-`outputs/live_player_skills_v2/settings.json`. It writes the roster and
-website ID audits to the supplied directory and updates
+`outputs/live_player_skills_v2/settings.json`. It writes the roster ID audit to the supplied directory and updates
 `www/player_projections.json` after validation. Use a fresh audit directory
 for each run. The updated column reports the last available box-score date
 before the requested forecast date. The preseason column uses the model's

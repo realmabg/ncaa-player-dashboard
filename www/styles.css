@@ -584,6 +584,7 @@ html, body {
 #atlas-shell:has(#ratings-tab.active) { min-height: 640px; }
 #ratings-tab.tab-panel.active { overflow-y: auto; }
 #ratings-tab .triton-table { min-width: 460px; }
+#ratings-tab .triton-table th { position: static; }
 #ratings-tab .triton-table tbody tr { cursor: default; }
 #ratings-tab .control-label {
   display: block;
@@ -599,9 +600,25 @@ html, body {
 #ratings_status p { margin: 0; }
 #ratings-tab .ratings-csv-link { color: var(--accent); }
 
-/* Player projections in the D-I profile */
+/* Player projections on the Ratings tab */
+#ratings-tab .ratings-projection-button {
+  background: transparent;
+  border: 1px solid var(--rule-2);
+  border-radius: .25rem;
+  color: var(--accent);
+  padding: .25rem .65rem;
+  cursor: pointer;
+}
+
+#ratings-tab .ratings-projection-button:hover,
+#ratings-tab .ratings-projection-button:focus-visible {
+  background: var(--accent-soft);
+}
+
 .player-projections {
-  margin: 1rem 0;
+  margin: .5rem 0 1rem;
+  padding: .85rem 1rem;
+  background: var(--bg);
 }
 
 .player-projections summary {
@@ -614,6 +631,7 @@ html, body {
 
 .player-projections table {
   width: 100%;
+  max-width: 760px;
   table-layout: fixed;
   font-size: .78rem;
   border-collapse: collapse;
@@ -628,6 +646,11 @@ html, body {
   text-align: right;
 }
 
+.player-projections thead th {
+  color: var(--ink);
+  vertical-align: bottom;
+}
+
 .player-projections th:first-child {
   width: 42%;
   text-align: left;
@@ -638,8 +661,4 @@ html, body {
   font-weight: normal;
   color: var(--ink-2);
   white-space: normal;
-}
-
-.player-projections thead th {
-  vertical-align: bottom;
 }

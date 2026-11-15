@@ -7,27 +7,18 @@ import gzip
 import json
 import math
 from pathlib import Path
-import re
 import subprocess
 import sys
-import unicodedata
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILES = ROOT / "mbb_with_pca_all_players_2026_with_pbp.csv"
+sys.path.insert(0, str(ROOT))
+from projection_keys import name_key
 SEASON = 2027
 PERCENT_STATS = {"three", "two", "ft", "ast", "orb", "drb", "usage", "personal_tov", "share"}
 RATIO_STATS = {"ftr"}
 # UAC is the renamed WAC. Metro is Torvik’s label for the MAAC.
 CONFERENCE_CODES = {"UAC": "WAC", "Metro": "MAAC"}
-
-
-def name_key(value):
-    ascii_name = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
-    parts = re.findall(r"[a-z0-9]+", ascii_name.lower())
-    if parts and parts[-1] in {"jr", "sr", "ii", "iii", "iv", "v"}:
-        parts.pop()
-    return "".join(parts)
 
 
 def csv_rows(path):
@@ -86,12 +77,15 @@ def main():
     data_through = datetime.strptime(max(eligible_dates), "%Y%m%d").date()
     current = defaultdict(set)
     current_teams = defaultdict(set)
+    current_names = defaultdict(set)
     for row in games:
         if str(row[0]) >= date_key:
             continue
         player_id = int(row[51])
         team = canonical(row[47])
-        current[team, name_key(row[48])].add(player_id)
+        name = name_key(row[48])
+        current[team, name].add(player_id)
+        current_names[team, player_id].add(name)
         current_teams[player_id].add(team)
 
     context = csv_rows(workspace / "runs/all_player_skills/context.csv")
@@ -101,6 +95,7 @@ def main():
             historical[canonical(row["team"]), name_key(row["player_name"])].add(int(float(row["pid"])))
 
     roster = {}
+    ratings_keys = defaultdict(set)
     audit_rows = []
     seen_ncaa = set()
     for row in csv_rows(args.rosters):
@@ -132,6 +127,8 @@ def main():
         else:
             status = source
             roster.setdefault(found, set()).add((destination, conf))
+            for name in names | current_names[team, found]:
+                ratings_keys[row["team"], name].add(found)
         audit_rows.append({"player": player_name, "team": row["team"], "ncaa_id": row["player_id"],
                            "torvik_id": found, "status": status})
     ambiguous = {pid for pid, destinations in roster.items() if len(destinations) != 1}
@@ -181,50 +178,28 @@ def main():
     if any(set(values) != set(ALL_STATS) for values in forecasts.values()):
         raise ValueError("Expected all 18 forecast stats per mapped roster player")
 
-    # The archived box feed verifies the website ID independently of prior eligibility.
-    archive = workspace / "data/game_logs/source/2026_all_advgames.json.gz"
-    archived_games, _ = read_rows(archive)
-    for row in archived_games:
-        historical[canonical(row[47]), name_key(row[48])].add(int(row[51]))
-
-    site_profiles = defaultdict(dict)
-    profile_audit = []
-    for row in csv_rows(PROFILES):
-        name, team = row["player_name"], row["team"]
-        identity = historical[canonical(team), name_key(name)]
-        raw_id = row.get("pbp_pid", "")
-        pbp_id = int(float(raw_id)) if raw_id and math.isfinite(float(raw_id)) else None
-        if pbp_id in identity:
-            pid = pbp_id
-            match = "verified_website_pbp_id"
-        elif len(identity) == 1:
-            pid = next(iter(identity))
-            match = "unique_historical_torvik_name_and_team"
-        else:
-            pid = None
-            match = "ambiguous_historical_id" if identity else "no_historical_id"
-        disposition = "unmatched_website_profile"
-        if pid is not None:
-            disposition = "no_verified_current_roster_match"
-        if pid in forecasts:
-            rates = [forecasts[pid][stat] for stat in ALL_STATS]
-            if any(value is not None for pair in rates for value in pair):
-                site_profiles[team][name] = {"team": forecast_teams[pid], "rates": rates}
-                disposition = "shown"
-            else:
-                disposition = "no_eligible_prior"
-        profile_audit.append(dict(player=name, team=team, website_pbp_id=pbp_id,
-                                  torvik_id=pid, identity_method=match, status=disposition))
-    write_audit(audit / "website_profile_matches.csv", profile_audit)
-    print("Website profiles:", dict(Counter(row["status"] for row in profile_audit)), flush=True)
+    ratings_players = defaultdict(dict)
+    ratings_names = defaultdict(dict)
+    for (team, name), ids in sorted(ratings_keys.items()):
+        if len(ids) != 1:
+            continue
+        pid, = ids
+        if pid not in forecasts:
+            continue
+        rates = [forecasts[pid][stat] for stat in ALL_STATS]
+        if any(value is not None for pair in rates for value in pair):
+            ratings_players[pid] = {"team": forecast_teams[pid], "rates": rates}
+            ratings_names[team][name] = pid
+    print(f"Ratings projections: {len(ratings_players)} players across {len(ratings_names)} teams",
+          flush=True)
     updated = Counter(row["stat"] for row in forecast_rows if row["status"] == "updated")
     print("Players with observed evidence by stat:", dict(updated), flush=True)
     payload = {
-        "season": "2026–27", "preseason_through": "2026-06-30",
+        "season": SEASON, "preseason_through": "2026-06-30",
         "updated_through": data_through.isoformat(),
         "stats": [{"label": labels[stat], "unit": "percent" if stat in PERCENT_STATS
                    else "ratio" if stat in RATIO_STATS else "per100"} for stat in ALL_STATS],
-        "players": site_profiles,
+        "players": ratings_players, "names": ratings_names,
     }
     draft = args.output.with_suffix(".tmp")
     draft.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n",
