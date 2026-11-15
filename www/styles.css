@@ -614,24 +614,32 @@ html, body {
 
 .player-projections table {
   width: 100%;
+  table-layout: fixed;
+  font-size: .78rem;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
 
 .player-projections th,
 .player-projections td {
-  padding: .4rem .55rem;
+  padding: .35rem .35rem;
+  overflow-wrap: anywhere;
   border-bottom: 1px solid var(--rule-2);
   text-align: right;
 }
 
 .player-projections th:first-child {
+  width: 42%;
   text-align: left;
 }
 
-.player-projections small {
+.player-projections th > small {
   display: block;
   font-weight: normal;
-  color: var(--ink-3);
-  white-space: nowrap;
+  color: var(--ink-2);
+  white-space: normal;
+}
+
+.player-projections thead th {
+  vertical-align: bottom;
 }

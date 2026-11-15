@@ -41,10 +41,10 @@ def player_projections_panel(name, team):
                     ui.tags.tr(
                         ui.tags.th("Stat", scope="col"),
                         ui.tags.th("Preseason",
-                                   ui.tags.small(f"Data through {snapshot['preseason_through']}"),
+                                   ui.tags.small("Data through", ui.tags.br(), snapshot["preseason_through"]),
                                    scope="col"),
                         ui.tags.th("Updated rest-of-season",
-                                   ui.tags.small(f"Data through {snapshot['updated_through']}"),
+                                   ui.tags.small("Data through", ui.tags.br(), snapshot["updated_through"]),
                                    scope="col"),
                     ),
                 ),
