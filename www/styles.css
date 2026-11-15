@@ -649,13 +649,13 @@ html, body {
 }
 
 #ratings-tab .triton-table-card {
-  background: #f8f7f4;
-  border-color: #dedad2;
+  background: var(--bg);
+  border-color: var(--rule);
 }
 
 #ratings-tab .triton-table th {
-  background: #efeee9;
-  color: #51565d;
+  background: var(--bg-2);
+  color: var(--ink-2);
   letter-spacing: .07em;
   white-space: normal;
 }
@@ -663,27 +663,27 @@ html, body {
 #ratings-tab .triton-table th,
 #ratings-tab .triton-table td {
   padding: .65rem .8rem;
-  border-bottom-color: #e7e4dd;
+  border-bottom-color: var(--rule);
 }
 
 #ratings-tab .triton-table tbody tr {
-  --ratings-row: #f8f7f4;
+  --ratings-row: var(--bg);
   background: var(--ratings-row);
 }
 
 #ratings-tab .triton-table tbody tr:nth-child(even) {
-  --ratings-row: #f1efeb;
+  --ratings-row: color-mix(in srgb, var(--bg-2) 45%, var(--bg));
 }
 
 #ratings-tab .triton-table tbody tr:hover {
-  --ratings-row: #ece9e1;
+  --ratings-row: var(--bg-2);
 }
 
 #ratings-tab .triton-table .ratings-player-column {
   position: sticky;
   left: 0;
   z-index: 2;
-  box-shadow: 1px 0 #e1ddd5;
+  box-shadow: 1px 0 var(--rule-2);
 }
 
 #ratings-tab td.ratings-player-column {
@@ -691,18 +691,18 @@ html, body {
 }
 
 #ratings-tab .triton-table-player {
-  color: #252a31;
+  color: var(--ink);
   font-weight: 700;
 }
 
 #ratings-tab .ratings-team-column {
-  color: #245a99;
+  color: var(--ink-2);
 }
 
 #ratings-tab .ratings-stat-cell {
   min-width: 94px;
   text-align: right;
-  color: #252a31;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 
@@ -710,7 +710,12 @@ html, body {
 #ratings-tab .ratings-stat-cell:nth-child(5),
 #ratings-tab .triton-table th:nth-child(4),
 #ratings-tab .triton-table th:nth-child(5) {
-  background: #e9edf5;
+  background: color-mix(in srgb, var(--bg-2) 65%, var(--ratings-row, var(--bg)));
+}
+
+#ratings-tab .ratings-stat-cell:nth-child(4) .ratings-stat-value,
+#ratings-tab .ratings-stat-cell:nth-child(5) .ratings-stat-value {
+  color: var(--accent);
 }
 
 #ratings-tab .ratings-stat-value,
@@ -726,8 +731,8 @@ html, body {
 #ratings-tab .ratings-percentile {
   margin-top: .18rem;
   font-size: .7rem;
-  color: #58616b;
+  color: var(--ink-2);
 }
 
-#ratings-tab .ratings-percentile.high { color: #08783d; }
-#ratings-tab .ratings-percentile.low { color: #b02630; }
+#ratings-tab .ratings-percentile.high { color: var(--pos-gf); }
+#ratings-tab .ratings-percentile.low { color: #f28b8b; }
