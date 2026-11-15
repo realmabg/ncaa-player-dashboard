@@ -48,7 +48,8 @@ def main():
     sys.path.insert(0, str(workspace / "scripts"))
     from audit_game_logs import read_rows
     from court_impact_population import destination_aliases
-    from live_player_skills import ALL_STATS
+    from live_player_skills import ALL_STATS, game_evidence, read_games
+    import pandas as pd
     from profile_data import school_key
     from three_point import conference_tier
 
@@ -178,7 +179,16 @@ def main():
     if any(set(values) != set(ALL_STATS) for values in forecasts.values()):
         raise ValueError("Expected all 18 forecast stats per mapped roster player")
 
-    ratings_players = defaultdict(dict)
+    evidence = game_evidence(read_games(games_path, SEASON, pd.Timestamp(args.date), aliases))
+    totals = evidence.groupby(["player_id", "team"]).sum(numeric_only=True)
+    actuals = {
+        stat: totals[f"{stat}_k"].div(totals[f"{stat}_e"].where(totals[f"{stat}_e"].gt(0)))
+        for stat in ALL_STATS
+    }
+    actuals = pd.DataFrame(actuals).astype(object)
+    actuals = actuals.where(actuals.notna(), None)
+
+    ratings_players = {}
     ratings_names = defaultdict(dict)
     for (team, name), ids in sorted(ratings_keys.items()):
         if len(ids) != 1:
@@ -186,18 +196,22 @@ def main():
         pid, = ids
         if pid not in forecasts:
             continue
-        rates = [forecasts[pid][stat] for stat in ALL_STATS]
-        if any(value is not None for pair in rates for value in pair):
-            ratings_players[pid] = {"team": forecast_teams[pid], "rates": rates}
-            ratings_names[team][name] = pid
-    print(f"Ratings projections: {len(ratings_players)} players across {len(ratings_names)} teams",
-          flush=True)
+        if pid not in ratings_players:
+            key = (pid, canonical(forecast_teams[pid]))
+            observed = actuals.loc[key, :].tolist() if key in actuals.index else [None] * len(ALL_STATS)
+            ratings_players[pid] = {
+                "actual": observed,
+                "preseason": [forecasts[pid][stat][0] for stat in ALL_STATS],
+                "updated": [forecasts[pid][stat][1] for stat in ALL_STATS],
+            }
+        ratings_names[team][name] = pid
+    print(f"Ratings stats: {len(ratings_players)} players across {len(ratings_names)} teams", flush=True)
     updated = Counter(row["stat"] for row in forecast_rows if row["status"] == "updated")
     print("Players with observed evidence by stat:", dict(updated), flush=True)
     payload = {
         "season": SEASON, "preseason_through": "2026-06-30",
-        "updated_through": data_through.isoformat(),
-        "stats": [{"label": labels[stat], "unit": "percent" if stat in PERCENT_STATS
+        "updated_through": data_through.isoformat(), "actual_through": data_through.isoformat(),
+        "stats": [{"key": stat, "label": labels[stat], "unit": "percent" if stat in PERCENT_STATS
                    else "ratio" if stat in RATIO_STATS else "per100"} for stat in ALL_STATS],
         "players": ratings_players, "names": ratings_names,
     }

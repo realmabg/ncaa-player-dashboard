@@ -31,9 +31,9 @@ def projections_for_season(season):
     return None
 
 
-def projection_values(snapshot, name, team):
+def projection_values(snapshot, name, team, mode):
     player_id = snapshot["names"].get(team, {}).get(name_key(name))
     player = snapshot["players"].get(str(player_id))
     if player is None:
-        return [None] * (2 * len(snapshot["stats"]))
-    return [value for pair in player["rates"] for value in pair]
+        return [None] * len(snapshot["stats"])
+    return player[mode]

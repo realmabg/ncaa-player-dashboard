@@ -94,11 +94,14 @@ Missing ratings are blank. The CSV is accessible from the public GitHub reposito
 
 ## Player projections
 
-The Ratings leaderboard includes two columns per projected stat for 2026–27.
-Scroll horizontally to compare preseason and updated rest-of-season values.
-Click a column header to sort. The dates above the table identify both data
-cutoffs. Shooting and opportunity shares display as percentages, counting
-rates display per 100 of the labeled exposure, and FTA/FGA displays as a ratio.
+The Ratings leaderboard shows actual season-to-date stats by default. Use
+**Projected** to switch the same columns to rest-of-season projections or
+the preseason baseline. Click a column header to sort. Actuals divide total
+events by total eligible attempts or opportunities through the cutoff.
+Percentiles compare players with a value in the selected view across the
+full published Ratings snapshot, before search or filters. Ties share a rank.
+Lower turnover and foul rates receive higher percentiles. BPM and RAPM use
+their observed ratings in both views.
 
 To refresh the bundled projection snapshot, run
 `scripts/export_player_projections.py` with the forecasting workspace's Python

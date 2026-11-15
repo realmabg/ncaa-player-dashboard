@@ -600,28 +600,134 @@ html, body {
 #ratings_status p { margin: 0; }
 #ratings-tab .ratings-csv-link { color: var(--accent); }
 
-#ratings-tab .ratings-player-column {
+#ratings-tab .ratings-stat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem 1.25rem;
+  margin: .25rem 0;
+}
+
+#ratings-tab .ratings-stat-controls .shiny-input-container {
+  width: auto;
+  margin: 0;
+}
+
+#ratings-tab .ratings-stat-controls .shiny-options-group {
+  display: inline-flex;
+  border: 1px solid var(--rule-2);
+  border-radius: .4rem;
+  overflow: hidden;
+}
+
+#ratings-tab .ratings-stat-controls .radio-inline {
+  position: relative;
+  padding: .45rem .85rem;
+  margin: 0;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+
+#ratings-tab .ratings-stat-controls .radio-inline + .radio-inline {
+  border-left: 1px solid var(--rule-2);
+}
+
+#ratings-tab .ratings-stat-controls .radio-inline input {
+  position: absolute;
+  opacity: 0;
+}
+
+#ratings-tab .ratings-stat-controls label:has(input:checked) {
+  color: var(--bg);
+  background: var(--accent);
+  font-weight: 700;
+}
+
+#ratings-tab .ratings-stat-controls label:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+#ratings-tab .triton-table-card {
+  background: #f8f7f4;
+  border-color: #dedad2;
+}
+
+#ratings-tab .triton-table th {
+  background: #efeee9;
+  color: #51565d;
+  letter-spacing: .07em;
+  white-space: normal;
+}
+
+#ratings-tab .triton-table th,
+#ratings-tab .triton-table td {
+  padding: .65rem .8rem;
+  border-bottom-color: #e7e4dd;
+}
+
+#ratings-tab .triton-table tbody tr {
+  --ratings-row: #f8f7f4;
+  background: var(--ratings-row);
+}
+
+#ratings-tab .triton-table tbody tr:nth-child(even) {
+  --ratings-row: #f1efeb;
+}
+
+#ratings-tab .triton-table tbody tr:hover {
+  --ratings-row: #ece9e1;
+}
+
+#ratings-tab .triton-table .ratings-player-column {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: var(--bg);
-  box-shadow: 1px 0 var(--rule-2);
+  box-shadow: 1px 0 #e1ddd5;
 }
 
-#ratings-tab .ratings-stat-group {
-  text-align: center;
-  border-left: 1px solid var(--rule-2);
-  color: var(--ink);
+#ratings-tab td.ratings-player-column {
+  background: var(--ratings-row);
 }
 
-#ratings-tab .ratings-projection-value,
-#ratings-tab .ratings-projection-periods th {
-  min-width: 92px;
+#ratings-tab .triton-table-player {
+  color: #252a31;
+  font-weight: 700;
+}
+
+#ratings-tab .ratings-team-column {
+  color: #245a99;
+}
+
+#ratings-tab .ratings-stat-cell {
+  min-width: 94px;
   text-align: right;
+  color: #252a31;
   font-variant-numeric: tabular-nums;
 }
 
-#ratings-tab .ratings-projection-periods th:nth-child(odd),
-#ratings-tab .ratings-projection-value:nth-child(even) {
-  border-left: 1px solid var(--rule-2);
+#ratings-tab .ratings-stat-cell:nth-child(4),
+#ratings-tab .ratings-stat-cell:nth-child(5),
+#ratings-tab .triton-table th:nth-child(4),
+#ratings-tab .triton-table th:nth-child(5) {
+  background: #e9edf5;
 }
+
+#ratings-tab .ratings-stat-value,
+#ratings-tab .ratings-percentile {
+  display: block;
+}
+
+#ratings-tab .ratings-stat-value {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+#ratings-tab .ratings-percentile {
+  margin-top: .18rem;
+  font-size: .7rem;
+  color: #58616b;
+}
+
+#ratings-tab .ratings-percentile.high { color: #08783d; }
+#ratings-tab .ratings-percentile.low { color: #b02630; }
