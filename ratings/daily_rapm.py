@@ -156,8 +156,10 @@ def recover_espn(inputs, scratch, season, missing, team_boxes, known):
     def summary(row):
         event = row["espn_event_id"]
         try:
-            download(f"{ESPN}/summary?event={event}", scratch / f"{event}.json")
-        except OSError as error:
+            path = scratch / f"{event}.json"
+            if not path.exists():
+                fetch_json(f"{ESPN}/summary?event={event}", path)
+        except (OSError, ValueError) as error:
             return dict(date=row["date"], teams=[row["home_team"], row["away_team"]], reason=str(error))
         return None
 

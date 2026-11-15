@@ -100,6 +100,17 @@ def publish(snapshot, players):
         if exists (select 1 from ratings.snapshots where season={season}
                    and through_date='{cutoff}' and published_at>'{snapshot["published_at"]}')
         then raise exception 'A newer run already published this cutoff'; end if;
+        if exists (
+            select old.entry->>0, old.entry->>1
+            from (
+                select input_manifest from ratings.snapshots where season={season}
+                  and through_date<='{cutoff}' order by through_date desc limit 1
+            ) previous
+            cross join lateral jsonb_array_elements(previous.input_manifest) old(entry)
+            except
+            select proposed.entry->>0, proposed.entry->>1
+            from jsonb_array_elements({payload(snapshot["input_manifest"])}) proposed(entry)
+        ) then raise exception 'Ratings coverage regressed: a previously published game is missing'; end if;
         end $$;""",
         records("snapshots", [snapshot], """on conflict (season,through_date) do update set
           published_at=excluded.published_at, model_version=excluded.model_version,
@@ -119,9 +130,12 @@ def load_queue(season, cutoff, stamp):
       'games', coalesce((select jsonb_agg(to_jsonb(g)) from ratings.games g
                          where g.season={season} and g.game_date<='{cutoff}'), '[]'),
       'last_cutoff', (select max(through_date) from ratings.snapshots where season={season} and through_date<='{cutoff}'),
+      'last_version', (select model_version from ratings.snapshots
+                       where season={season} and through_date<='{cutoff}'
+                       order by through_date desc limit 1),
       'due', coalesce((select jsonb_agg(distinct g.game_date) from ratings.games g
                        join ratings.game_metric_status s using (season,game_key)
                        where g.season={season} and g.game_date<='{cutoff}'
                          and s.next_retry_at<='{stamp}'), '[]'));""")
     result = json.loads(data)
-    return result["games"], result["due"], result["last_cutoff"]
+    return result["games"], result["due"], result["last_cutoff"], result["last_version"]

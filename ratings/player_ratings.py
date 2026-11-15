@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parent
 RELEASES = "https://github.com/sportsdataverse/sportsdataverse-data/releases/download"
 TORVIK = "https://barttorvik.com"
 ALPHA = 2000.0  # Frozen setting from the earlier court-impact validation.
+RAPM_HALF_LIFE_DAYS = 90
 FEEDS = ("possessions", "schedule", "team_ids", "team_rosters", "pbp")
 COLUMNS = (
     "season", "player_name", "team", "torvik_player_id", "ncaa_player_id",
@@ -177,6 +178,10 @@ def backfill_games(season, cutoff, roster, accepted_espn_ids, accepted_matchups,
         yield f"espn:{event}", played, observations
 
 
+def rapm_game_weight(played, cutoff):
+    return 2 ** (-(cutoff - played).days / RAPM_HALF_LIFE_DAYS)
+
+
 def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer=None,
                    extra_backfill=None, fit=True):
     team_names = {row["id"]: row["team"] for row in feed_rows(directory, "team_ids", season)}
@@ -220,9 +225,10 @@ def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer
         accepted_dates.append(played)
         if game_status is not None:
             game_status[game_id] = "accepted"
+        weight = rapm_game_weight(played, cutoff)
         for lineup, scored in observations:
-            groups[lineup][0] += 1
-            groups[lineup][1] += scored
+            groups[lineup][0] += weight
+            groups[lineup][1] += weight * scored
             for player in lineup:
                 appearances[player].add(game_id)
                 exposures[player] += 1
@@ -347,6 +353,9 @@ def solve_rapm(groups, exposures, appearances, last_dates, roster, team_names):
     size = len(players)
     weight = np.array([value[0] for value in groups.values()], dtype=float)
     target = np.array([value[1] for value in groups.values()], dtype=float) / weight
+    # Preserve the total possession weight so recency does not change the
+    # overall strength of the ridge penalty relative to the observed sample.
+    weight *= (sum(exposures.values()) / 10) / weight.sum()
     scale = np.sqrt(weight)
     columns = np.fromiter(
         (index[player] + (size if i >= 5 else 0)
