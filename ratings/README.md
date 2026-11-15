@@ -83,3 +83,11 @@ from ratings.snapshots
 order by through_date desc
 limit 1;
 ```
+
+## Dashboard CSV
+
+After publishing the Supabase snapshot, the daily workflow exports
+`player-ratings.csv` to the `ratings-data` branch. The GitHub Pages Ratings
+tab fetches the CSV when opened, so daily updates do not require a site rebuild.
+The CSV contains the player ratings, their sample sizes, and snapshot coverage.
+Missing ratings are blank. The CSV is accessible from the public GitHub repository.

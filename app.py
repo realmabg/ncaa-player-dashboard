@@ -15,6 +15,7 @@ from data_engine import (
     load_data, load_d1_data,
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
+from ratings_tab import ratings_tab_server, ratings_tab_ui
 
 HERE = Path(__file__).parent
 BUNDLED_CURRENT_D2_SCHEMA_PATH = HERE / "current_d2_all_players_10mpg_dashboard_schema.csv"
@@ -4860,6 +4861,7 @@ app_ui = ui.page_fluid(
             }
             .tab-btn:hover     { color:var(--ink-2); }
             .tab-btn.active-d1 { color:#4a9eed;       border-bottom-color:#4a9eed; }
+            .tab-btn.active-ratings { color:var(--accent); border-bottom-color:var(--accent); }
             .tab-btn.active-d2 { color:var(--accent);  border-bottom-color:var(--accent); }
             .tab-btn.active-d3 { color:#e8a44a;        border-bottom-color:#e8a44a; }
             .tab-btn.active-info { color:var(--ink);    border-bottom-color:var(--ink); }
@@ -7137,7 +7139,7 @@ app_ui = ui.page_fluid(
                     p.classList.remove('active');
                 });
                 document.querySelectorAll('.tab-btn').forEach(function(b) {
-                    b.classList.remove('active-d1','active-d2','active-d3','active-info','active-wl','active-ucsd','active-hist','active-sim-beta','active-triton');
+                    b.classList.remove('active-d1','active-d2','active-d3','active-info','active-wl','active-ucsd','active-hist','active-sim-beta','active-triton','active-ratings');
                 });
                 document.getElementById(tab+'-tab').classList.add('active');
                 document.getElementById('btn-'+tab).classList.add('active-'+tab);
@@ -7344,6 +7346,9 @@ app_ui = ui.page_fluid(
                ui.tags.button("Division I",   id="btn-d1", class_="tab-btn active-d1",
                               onclick="switchTab('d1')"),
                ui.div({"class": "tab-sep"}),
+               ui.tags.button("Ratings", id="btn-ratings", class_="tab-btn",
+                              onclick="switchTab('ratings')"),
+               ui.div({"class": "tab-sep"}),
                ui.tags.button("Division II",  id="btn-d2", class_="tab-btn",
                               onclick="switchTab('d2')"),
                ui.div({"class": "tab-sep"}),
@@ -7376,6 +7381,8 @@ app_ui = ui.page_fluid(
                    ui.div({"class": "body-grid"},
                           make_sidebar("d1", d1_df, d1_conferences),
                           make_plot_area("d1"))),
+
+            ratings_tab_ui(),
 
             ui.div({"id": "d2-tab", "class": "tab-panel"},
                    ui.div({"class": "body-grid"},
@@ -7437,6 +7444,8 @@ app_ui = ui.page_fluid(
 # ─────────────────────────────────────────────────────────────────────────
 
 def server(input, output, session):
+
+    ratings_tab_server(input, session)
 
     d1_sel    = reactive.Value(None)
     d1_dim    = reactive.Value(set())

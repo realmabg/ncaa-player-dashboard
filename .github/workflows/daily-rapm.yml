@@ -45,3 +45,20 @@ jobs:
         env:
           RATINGS_DATABASE_URL: ${{ secrets.RATINGS_DATABASE_URL }}
           RECHECK_SEASON: ${{ inputs.recheck_season }}
+  export-csv:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: calculate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Export the published snapshot
+        env:
+          RATINGS_DATABASE_URL: ${{ secrets.RATINGS_DATABASE_URL }}
+        run: python ratings/export_ratings.py "$RUNNER_TEMP/player-ratings.csv"
+      - name: Publish the dashboard CSV
+        run: bash ratings/publish_csv.sh "$RUNNER_TEMP/player-ratings.csv"
