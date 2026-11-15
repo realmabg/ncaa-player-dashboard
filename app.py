@@ -7512,8 +7512,6 @@ app_ui = ui.page_fluid(
 
 def server(input, output, session):
 
-    ratings_tab_server(input, session)
-
     d1_sel    = reactive.Value(None)
     d1_dim    = reactive.Value(set())
     d2_sel    = reactive.Value(None)
@@ -7521,6 +7519,11 @@ def server(input, output, session):
     d3_sel    = reactive.Value(None)
     d3_dim    = reactive.Value(set())
     watchlist = reactive.Value(set())
+    ratings_tab_server(
+        input, session,
+        watchlisted_players=lambda: (row for _, row, _, div in watchlist_rows(watchlist.get()) if div == "D-I"),
+        team_key=normalize_team_lookup_key,
+    )
     # Flipped once the browser has handed back its stored watchlist, so the
     # empty starting set is never written over what was already saved.
     watchlist_restored = reactive.Value(False)
