@@ -38,9 +38,11 @@ both feeds agree on counting stats, verified school minutes can resolve
 a timing dispute while preserving those counts. Rows with an appearance
 rounded to zero in the school box include a play-by-play source for
 the measured seconds.
-After deploying historical corrections, run **Daily BPM and RAPM** with
-**Revalidate previously processed games** enabled to apply them to
-previously accepted games as well as open reviews.
+Increment `INPUT_RULES_VERSION` when changing validation or source
+selection rules or shipping historical corrections. The first daily run
+after a version change revalidates previously processed games, including
+accepted games and open reviews. The workflow's **Revalidate previously
+processed games** option can also force a replay.
 
 `ratings.game_sources` identifies the evidence attached to each game.
 `ratings.game_metric_status` tracks each metric, its next retry, and its last

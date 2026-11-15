@@ -17,9 +17,15 @@ from box_plus_minus import BOX_COLUMNS, complete_team_box, season_bpm
 from daily_rapm import ESPN, PACIFIC, espn_scoreboards, fetch_json, recover_espn
 from player_ratings import (FEEDS, RAPM_HALF_LIFE_DAYS, RELEASES, ROOT, download, feed_rows,
                             key, lineup_ratings, ncaa_date, rapm_game_weight, solve_rapm, unique)
-from rapm_repairs import expected_score
+from rapm_repairs import MISSING_ROSTER_PLAYERS, expected_score
 from rebuild_espn_rapm import ESPN_NAME_VARIANTS, ESPN_ROSTER_JERSEYS, espn_game, replay
 import ratings_store as store
+
+# Increment INPUT_RULES_VERSION when validation, source selection or curated
+# corrections change. The next successful run revalidates stored games.
+INPUT_RULES_VERSION = 2
+MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
+                 f"+inputs-v{INPUT_RULES_VERSION}")
 
 NCAA = "https://stats.ncaa.org/contests"
 # The NCAA catalog carries an old and a corrected contest for this game.
@@ -232,13 +238,16 @@ def ncaa_box(game, rows, teams, neutral):
         team = raw["team_ncaa_team_id"]
         if team not in (game["home_team_id"], game["away_team_id"]):
             raise ValueError("NCAA box has an unresolved team")
-        player = raw["player_id"] or NCAA_BOX_ALIASES.get((team, raw["player"]))
+        tag = raw["player"]
+        reviewed_id, reviewed_name = MISSING_ROSTER_PLAYERS.get((team, tag), (None, None))
+        player = raw["player_id"] or NCAA_BOX_ALIASES.get((team, tag)) or reviewed_id
         if not player:
             raise ValueError("NCAA box has an unresolved player")
         stats = {name: float(raw[field]) for name, field in BOX_FIELDS.items()}
         stats["two_made"] -= stats["threes"]
         stats["two_attempts"] -= stats["three_attempts"]
-        result.append(box_row(game, team, raw["clean_name"] or raw["player"], f"ncaa:{player}",
+        name = raw["clean_name"] or reviewed_name or tag
+        result.append(box_row(game, team, name, f"ncaa:{player}",
                               float(raw["mins"]), stats, neutral, teams))
     return result
 
@@ -603,7 +612,8 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
             try:
                 played_minutes = replay_minutes(summary, event)
                 replayed_box = valid_box(
-                    espn_box(game, summary, teams, aliases, player_ids, jersey_ids, reviewed_ids, played_minutes),
+                    espn_box(game, summary, teams, game_aliases, player_ids, jersey_ids, reviewed_ids,
+                             played_minutes, school_rows=verified_rows),
                     game, teams)
                 ncaa_candidate = candidates.get("ncaa")
                 if not ncaa_candidate and ncaa_rows.get(ncaa):
@@ -799,7 +809,7 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
 
     if not dry_run:
         store.publish(dict(season=season, through_date=cutoff.isoformat(), published_at=stamp,
-                           model_version=f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2",
+                           model_version=MODEL_VERSION,
                            coverage=coverage, input_manifest=manifest), players)
 
 
@@ -818,15 +828,18 @@ def main():
     season = args.season or cutoff.year + (cutoff.month >= 7)
     stamp = datetime.now(timezone.utc)
     run_id = os.getenv("GITHUB_RUN_ID", str(uuid4())) + ":" + os.getenv("GITHUB_RUN_ATTEMPT", "1")
-    previous, due, last_cutoff = ([], [], None) if args.dry_run else store.load_queue(
-        season, cutoff, stamp.isoformat())
+    previous, due, last_cutoff, last_version = ([], [], None, None)
+    if not args.dry_run:
+        previous, due, last_cutoff, last_version = store.load_queue(season, cutoff, stamp.isoformat())
     # A late final may have no row in the retry queue yet. Revisit recent dates
     # after the feed has had time to post the game.
     dates = {cutoff - timedelta(days=offset) for offset in range(3)
              if cutoff - timedelta(days=offset) >= date(season - 1, 7, 1)}
     dates.update(date.fromisoformat(day) for day in due)
-    if args.recheck_season:
+    if args.recheck_season or (last_cutoff and last_version != MODEL_VERSION):
         dates.update(date.fromisoformat(game["game_date"]) for game in previous)
+        if last_version != MODEL_VERSION and last_cutoff:
+            print(f"Revalidating stored games after version change: {last_version} → {MODEL_VERSION}")
     if last_cutoff:
         start = date.fromisoformat(last_cutoff)
         dates.update(start + timedelta(days=i) for i in range(1, (cutoff-start).days+1))

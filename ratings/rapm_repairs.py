@@ -20,6 +20,9 @@ LINEUP_NAMES = {
 MISSING_ROSTER_PLAYERS = {
     ("627258", "MACALEAB.RICH"): ("bt:79258", "Macaleab Rich"),
     ("627498", "PHOENIX.WOODSON"): ("bt:145645", "Phoenix Woodson"),
+    # The Oregon State game book confirms Sutton and Anglo are distinct players.
+    # https://osubeavers.com/sports/mens-basketball/stats/2026-27/mississippi-valley-state/boxscore/22930
+    ("627392", "CHANCE.SUTTON"): ("espn:5314772", "Chance Sutton"),
 }
 # In these games the named player checked in at the same dead ball as the
 # phantom TEAM substitutions and was absent from the following lineup.

@@ -101,6 +101,14 @@ ESPN_NAME_VARIANTS = {
     ("2502", "Gantas Krianauskas"): ("12149647", "22", 144919),
     ("2502", "Emil Skytt"): ("12149653", "8", 76032),
     ("249", "Cash Chavis"): ("12151866", "1", 126524),
+    # https://fgcuathletics.com/sports/mens-basketball/roster/2026-27
+    ("526", "BB Washington"): ("11479253", "8", None),
+    ("526", "CJ Outlaw"): ("11593006", "45", None),
+    # https://ucasports.com/roster.aspx?path=mbball&season=2026-27
+    ("2110", "Harry Beauchamp"): ("11475344", "9", None),
+    ("2110", "J.C. Shulman"): ("11475506", "4", None),
+    ("2110", "R.J. Young"): ("12148184", "0", None),
+    ("2110", "Simm-Marten Saadi"): ("12148179", "35", None),
 }
 ESPN_ROSTER_JERSEYS = {"11474386": "7", "11478497": "23"}
 SHOT_CORRECTIONS = {

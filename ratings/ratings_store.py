@@ -130,9 +130,12 @@ def load_queue(season, cutoff, stamp):
       'games', coalesce((select jsonb_agg(to_jsonb(g)) from ratings.games g
                          where g.season={season} and g.game_date<='{cutoff}'), '[]'),
       'last_cutoff', (select max(through_date) from ratings.snapshots where season={season} and through_date<='{cutoff}'),
+      'last_version', (select model_version from ratings.snapshots
+                       where season={season} and through_date<='{cutoff}'
+                       order by through_date desc limit 1),
       'due', coalesce((select jsonb_agg(distinct g.game_date) from ratings.games g
                        join ratings.game_metric_status s using (season,game_key)
                        where g.season={season} and g.game_date<='{cutoff}'
                          and s.next_retry_at<='{stamp}'), '[]'));""")
     result = json.loads(data)
-    return result["games"], result["due"], result["last_cutoff"]
+    return result["games"], result["due"], result["last_cutoff"], result["last_version"]
