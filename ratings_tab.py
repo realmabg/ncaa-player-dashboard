@@ -292,7 +292,10 @@ def stat_cell(value, percentile, *, projection=None):
         rank = f'<span class="ratings-percentile {tone}" title="{ordinal} percentile">{label}</span>'
     if projection is None:
         return f'<td class="ratings-stat-cell">{number}{rank}</td>'
-    forecast = f'<span class="ratings-projection">Proj. {projection}</span>' if projection else ""
+    forecast = (
+        '<span class="ratings-projection"><span class="ratings-projection-label">Proj.</span>'
+        f'{projection}</span>' if projection else ""
+    )
     return (f'<td class="ratings-stat-cell ratings-skill-cell">{number}'
             f'<div class="ratings-stat-details">{forecast}{rank}</div></td>')
 
