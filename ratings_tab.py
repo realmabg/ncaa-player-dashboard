@@ -196,7 +196,6 @@ def ratings_tab_server(input, session):
         search = input.ratings_search().strip()
         if search:
             matches = frame["player_name"].str.contains(search, case=False, regex=False, na=False)
-            matches |= frame["team"].str.contains(search, case=False, regex=False, na=False)
             frame = frame.loc[matches]
 
         column, ascending = sort.get()
