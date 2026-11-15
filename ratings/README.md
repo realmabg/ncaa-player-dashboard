@@ -1,140 +1,22 @@
-# Daily BPM and RAPM
+# Player Ratings
 
-The data job runs at 7:30 a.m. Pacific on the default branch. A pull request
-runs a calculation without a database connection. Production runs require
-the Actions secret `RATINGS_DATABASE_URL`, a TLS-enabled Supabase session
-pooler URI for an approved `ratings_writer` login. Provision its privileges
-with [ratings_writer_grants.sql](sql/ratings_writer_grants.sql) after the
-[schema migration](sql/ratings_schema.sql) is applied. The grants script
-assumes the login already exists.
+| Folder | What lives there |
+| --- | --- |
+| [daily/](daily/) | Daily BPM and RAPM calculations, game validation and repairs, Supabase SQL, and CSV export and publishing. |
+| [projections/](projections/) | The 18-stat forecast export, player matching, and the snapshot used by the site. |
+| [page/](page/) | The Ratings table, filters, conference list, and styles. |
 
-The first run discovers completed Division I games from the NCAA schedule
-and ESPN scoreboards. Subsequent runs check the latest three game dates,
-any missed calendar days since the last published run, and dates with due
-retries. The recent window also discovers games posted late by both sources. The job
-validates SportsDataverse and ESPN box scores separately, compares the
-fields BPM uses, and logs disagreements for review. ESPN roster aliases
-must match uniquely by team, jersey, surname, and first initial when a
-full-name match fails. Previously verified name variants also require the
-audited ESPN and NCAA jerseys. When reported minutes conflict or a box
-fails validation, the job can use playing time reconstructed from ESPN
-substitutions after checking every period, lineup, and player point total.
-If both boxes provide counting stats, those stats must agree for the
-replay to resolve the game. When an audited school box provides a
-third value for every disputed field, the job uses the value supported
-by two sources, validates the resulting box, and records the votes.
-When two complete boxes pass validation and the available evidence does
-not settle the disagreement, the job includes the NCAA box in BPM. The
-audit records the default and disputed fields and keeps the game open
-for review and retry. Games still need a validated box and resolved final
-score to count. RAPM can fall back
-to replaying ESPN starters and substitutions when the NCAA lineup feed
-has no valid game. Historical verified corrections ship with the code.
+**BPM and RAPM refresh daily.** At 7:30 a.m. Pacific, the
+[GitHub Actions workflow](../.github/workflows/daily-rapm.yml) validates new
+games and retries missing inputs. It recalculates the ratings, publishes the
+snapshot in Supabase, then exports both ratings to one `player-ratings.csv`
+on the `ratings-data` branch. The page fetches that CSV when the dashboard
+session starts. Daily ratings updates do not require rebuilding the website.
 
-`bpm_school_boxes_2027.csv` contains audited official box scores for
-the November 11 backfill. The job checks team scores, player IDs,
-playing time, and counting stats before accepting a school box. When
-both feeds agree on counting stats, verified school minutes can resolve
-a timing dispute while preserving those counts. Rows with an appearance
-rounded to zero in the school box include a play-by-play source for
-the measured seconds.
-Increment `INPUT_RULES_VERSION` when changing validation or source
-selection rules or shipping historical corrections. The first daily run
-after a version change revalidates previously processed games, including
-accepted games and open reviews. The workflow's **Revalidate previously
-processed games** option can also force a replay.
-
-`ratings.game_sources` identifies the evidence attached to each game.
-`ratings.game_metric_status` tracks each metric, its next retry, and its last
-accepted input revision. A failed retry preserves that revision.
-`ratings.open_review_queue` lists open issues with evidence, source URLs,
-and affected player or possession details when available. A reviewer can
-record a resolution and timestamp in `ratings.review_issues`. To reprocess a
-reviewed game, set its metric's `next_retry_at` to `now()`. The pipeline can
-close an issue automatically after a successful recheck.
-
-Each run downloads the season roster and matches listed positions to the
-validated BPM boxes by team and NCAA player ID. BPM blends the position
-estimated from box scores with 50 minutes at the listed default: 1.5 for
-guards, 3.5 for forwards, and 5 for centers. Missing or unsupported labels
-use position 3. The offensive-role default is 4. The snapshot and Actions
-summary report how many BPM players used a roster position or the fallback.
-
-RAPM uses the ten players on the floor and a 90-day half-life for game
-weights. It fits observed scoring with ridge regularization centered at
-zero. The output reports actual possession counts.
-
-The model reads accepted revisions from Supabase and publishes the snapshot
-and player rows together in one transaction. The snapshot includes the
-input revisions, coverage counts, model version, and each metric's cutoff.
-Publication fails if a game previously included in the latest snapshot for
-that cutoff or earlier would disappear from either metric. Revision updates
-and newly validated games can still publish. The Actions summary lists
-coverage and each missing game with its reason. The workflow warns about
-gaps even when it can publish the validated data.
-
-```sql
-select game_date, game_key, metric, evidence
-from ratings.open_review_queue
-order by game_date desc, game_key, metric;
-
-select through_date, coverage
-from ratings.snapshots
-order by through_date desc
-limit 1;
-```
-
-## Dashboard CSV
-
-After publishing the Supabase snapshot, the daily workflow exports
-`player-ratings.csv` to the `ratings-data` branch. The GitHub Pages Ratings
-tab fetches the CSV when opened, so daily updates do not require a site rebuild.
-The CSV contains the player ratings, their sample sizes, and snapshot coverage.
-Missing ratings are blank. The CSV is accessible from the public GitHub repository.
-
-## Player projections
-
-The Ratings leaderboard shows actual season-to-date stats by default. Use
-**Projected** to switch the same columns to rest-of-season projections or
-the preseason baseline. Click a column header to sort. Actuals divide total
-events by total eligible attempts or opportunities through the cutoff.
-Percentiles compare players with a value in the selected view across the
-full published Ratings snapshot, before search or filters. Ties share a rank.
-Lower turnover and foul rates receive higher percentiles. BPM and RAPM use
-their observed ratings in both views.
-
-Hover over a stat header for its denominator. **TO%** uses estimated
-personal possessions (usage × estimated on-court team possessions).
-**TO/100** uses all estimated on-court team possessions. **STL%** uses
-estimated opponent possessions at the game’s common pace and **BLK%** uses
-estimated opponent two-point attempts. **FTR** pools all free-throw and
-field-goal attempts across games, including free throws from zero-FGA games.
-
-
-To refresh the bundled projection snapshot, run
-`scripts/export_player_projections.py` with the forecasting workspace's Python
-environment. Supply these inputs for the same season:
-
-- `--rosters` is the SportsDataverse
-  [NCAA team roster release](https://github.com/sportsdataverse/sportsdataverse-data/releases/tag/ncaa_mbb_team_rosters)
-  asset `ncaa_mbb_team_rosters_2027.csv.gz`.
-- `--teams` is [Torvik's current team results](https://barttorvik.com/2027_team_results.csv).
-  The export uses only the school and conference columns. UAC and Metro are
-  mapped to the model's WAC and MAAC conference codes.
-- `--games` is the [Torvik advanced box-score archive](https://barttorvik.com/2027_all_advgames.json.gz).
-  Keep the full box scores so the exporter can reconstruct opportunities.
-
-```sh
-"$PROJECTION_WORKSPACE/.venv-pymc/bin/python" scripts/export_player_projections.py \
-  --workspace "$PROJECTION_WORKSPACE" \
-  --rosters "$ROSTER_GZ" --teams "$TEAM_CSV" --games "$GAMES_GZ" \
-  --date "$FORECAST_DATE" --audit-dir "$NEW_AUDIT_DIRECTORY"
-```
-
-The wrapper calls the original exporter from the model workspace with
-`outputs/live_player_skills_v2/settings.json`. It writes the roster ID audit to the supplied directory and updates
-`www/player_projections.json` after validation. Use a fresh audit directory
-for each run. The updated column reports the last available box-score date
-before the requested forecast date. The preseason column uses the model's
-prior-season data cutoff and the roster's destination school. Publish the
-updated JSON with the normal GitHub Pages build.
+**Actual stats and rest-of-season projections use a separate snapshot.**
+The [projection exporter](projections/README.md) writes the model result to
+`player_skills.csv` for audit and packages the 18 actual and projected stats
+into `projections/player_projections.json` for the page. The exporter is
+currently run manually in the forecasting workspace. The website needs a
+Pages rebuild to pick up a newer bundled forecast. The two dates can differ,
+and the page displays each data cutoff.

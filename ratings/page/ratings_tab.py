@@ -9,7 +9,9 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from shiny import reactive, render, ui
 
-from player_projections import STAT_HEADERS, format_projection, projection_values, projections_for_season
+from ratings.projections.player_projections import (
+    STAT_HEADERS, format_projection, projection_values, projections_for_season,
+)
 
 CSV_URL = (
     "https://raw.githubusercontent.com/Siddhu-S/ncaa-player-dashboard/"
@@ -106,7 +108,7 @@ def read_ratings(raw):
     for column in ("bpm", "rapm", "bpm_minutes", "rapm_possessions"):
         frame[column] = pd.to_numeric(frame[column])
     # The 2026–27 Torvik conference list is keyed by the NCAA team names used in the CSV.
-    conference_path = Path(__file__).with_name("www") / "ratings_conferences.json"
+    conference_path = Path(__file__).with_name("ratings_conferences.json")
     by_season = json.loads(conference_path.read_text(encoding="utf-8"))
     conferences = by_season.get(str(int(frame.iloc[0]["season"])), {})
     frame["conference"] = frame["team"].map(conferences)

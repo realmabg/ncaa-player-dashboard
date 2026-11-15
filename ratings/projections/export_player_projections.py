@@ -11,9 +11,9 @@ import subprocess
 import sys
 
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from projection_keys import name_key
+from .projection_keys import name_key
+
+SNAPSHOT_PATH = Path(__file__).with_name("player_projections.json")
 SEASON = 2027
 PERCENT_STATS = {"three", "two", "ft", "ast", "orb", "drb", "usage", "personal_tov", "share"}
 RATIO_STATS = {"ftr"}
@@ -39,7 +39,7 @@ def main():
     for name in ("workspace", "rosters", "teams", "games", "audit-dir"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--date", type=date.fromisoformat, required=True)
-    parser.add_argument("--output", type=Path, default=ROOT / "www/player_projections.json")
+    parser.add_argument("--output", type=Path, default=SNAPSHOT_PATH)
     args = parser.parse_args()
     workspace = args.workspace.resolve()
     games_path = args.games.resolve()

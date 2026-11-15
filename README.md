@@ -1,7 +1,7 @@
 # ncaa-player-dashboard
 Player Dashboard for NCAA D1, D2 &amp; D3 Players
 
-### Daily men's BPM and RAPM
+### Player Ratings
 
-The ratings data workflow and database setup are documented in
-[ratings/README.md](ratings/README.md).
+The [Ratings folder](ratings/README.md) contains the daily BPM and RAPM
+pipeline, the player forecast exporter, and the Ratings page.

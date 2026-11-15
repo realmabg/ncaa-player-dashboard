@@ -15,7 +15,7 @@ from data_engine import (
     load_data, load_d1_data,
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
-from ratings_tab import ratings_tab_server, ratings_tab_ui
+from ratings.page.ratings_tab import ratings_tab_server, ratings_tab_ui
 
 HERE = Path(__file__).parent
 BUNDLED_CURRENT_D2_SCHEMA_PATH = HERE / "current_d2_all_players_10mpg_dashboard_schema.csv"
@@ -4867,6 +4867,7 @@ app_ui = ui.page_fluid(
         ui.tags.link(rel="stylesheet",
             href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"),
         ui.include_css(str(HERE / "www" / "styles.css"), method="inline"),
+        ui.include_css(str(HERE / "ratings" / "page" / "styles.css"), method="inline"),
         ui.tags.style("""
             /* ── Tab bar ─────────────────────────────────────── */
             #tab-switcher {

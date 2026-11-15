@@ -3,7 +3,7 @@ from functools import lru_cache
 import json
 from pathlib import Path
 
-from projection_keys import name_key
+from .projection_keys import name_key
 
 
 # Definitions follow the model's exposures. Display units are independent of
@@ -33,7 +33,7 @@ PERCENT_DISPLAY = {"stl", "blk"}
 
 @lru_cache(maxsize=1)
 def load_projections():
-    path = Path(__file__).with_name("www") / "player_projections.json"
+    path = Path(__file__).with_name("player_projections.json")
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
     return None
