@@ -700,7 +700,7 @@ html, body {
 }
 
 #ratings-tab .ratings-stat-cell {
-  --ratings-secondary-size: 1.125rem;
+  --ratings-secondary-size: .7rem;
   min-width: 94px;
   text-align: right;
   color: var(--ink);
@@ -725,7 +725,7 @@ html, body {
 }
 
 #ratings-tab .ratings-stat-value {
-  font-size: 1.375rem;
+  font-size: 1rem;
   font-weight: 700;
   line-height: 1.1;
 }
