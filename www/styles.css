@@ -598,3 +598,40 @@ html, body {
 #ratings_status { height: auto !important; }
 #ratings_status p { margin: 0; }
 #ratings-tab .ratings-csv-link { color: var(--accent); }
+
+/* Player projections in the D-I profile */
+.player-projections {
+  margin: 1rem 0;
+}
+
+.player-projections summary {
+  cursor: pointer;
+}
+
+.player-projections-scroll {
+  overflow-x: auto;
+}
+
+.player-projections table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-projections th,
+.player-projections td {
+  padding: .4rem .55rem;
+  border-bottom: 1px solid var(--rule-2);
+  text-align: right;
+}
+
+.player-projections th:first-child {
+  text-align: left;
+}
+
+.player-projections small {
+  display: block;
+  font-weight: normal;
+  color: var(--ink-3);
+  white-space: nowrap;
+}

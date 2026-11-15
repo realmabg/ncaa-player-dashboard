@@ -91,3 +91,40 @@ After publishing the Supabase snapshot, the daily workflow exports
 tab fetches the CSV when opened, so daily updates do not require a site rebuild.
 The CSV contains the player ratings, their sample sizes, and snapshot coverage.
 Missing ratings are blank. The CSV is accessible from the public GitHub repository.
+
+## Player projections
+
+The D-I player profile shows the preseason and rest-of-season skill projections
+for 2026–27. Existing profile stats are for 2025–26. The projection table
+labels the forecast season and destination school. Shooting and opportunity
+shares display as percentages, counting rates display per 100 of the labeled
+exposure, and FTA/FGA displays as a ratio.
+
+To refresh the bundled projection snapshot, run
+`scripts/export_player_projections.py` with the forecasting workspace's Python
+environment. Supply these inputs for the same season:
+
+- `--rosters` is the SportsDataverse
+  [NCAA team roster release](https://github.com/sportsdataverse/sportsdataverse-data/releases/tag/ncaa_mbb_team_rosters)
+  asset `ncaa_mbb_team_rosters_2027.csv.gz`.
+- `--teams` is [Torvik's current team results](https://barttorvik.com/2027_team_results.csv).
+  The export uses only the school and conference columns. UAC and Metro are
+  mapped to the model's WAC and MAAC conference codes.
+- `--games` is the [Torvik advanced box-score archive](https://barttorvik.com/2027_all_advgames.json.gz).
+  Keep the full box scores so the exporter can reconstruct opportunities.
+
+```sh
+"$PROJECTION_WORKSPACE/.venv-pymc/bin/python" scripts/export_player_projections.py \
+  --workspace "$PROJECTION_WORKSPACE" \
+  --rosters "$ROSTER_GZ" --teams "$TEAM_CSV" --games "$GAMES_GZ" \
+  --date "$FORECAST_DATE" --audit-dir "$NEW_AUDIT_DIRECTORY"
+```
+
+The wrapper calls the original exporter from the model workspace with
+`outputs/live_player_skills_v2/settings.json`. It writes the roster and
+website ID audits to the supplied directory and updates
+`www/player_projections.json` after validation. Use a fresh audit directory
+for each run. The updated column reports the last available box-score date
+before the requested forecast date. The preseason column uses the model's
+prior-season data cutoff and the roster's destination school. Publish the
+updated JSON with the normal GitHub Pages build.

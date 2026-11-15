@@ -16,6 +16,7 @@ from data_engine import (
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
 from ratings_tab import ratings_tab_server, ratings_tab_ui
+from player_projections import player_projections_panel
 
 HERE = Path(__file__).parent
 BUNDLED_CURRENT_D2_SCHEMA_PATH = HERE / "current_d2_all_players_10mpg_dashboard_schema.csv"
@@ -3782,6 +3783,7 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                ),
                ui.div({"class": "statline", "id": season_panel_id, "style": "display:grid;"}, *season_statline),
                ui.div({"class": "statline", "id": eff_panel_id, "style": "display:none;"}, *efficiency_statline),
+               player_projections_panel(row["name"], row["team"]) if division_label == "D-I" else None,
                ui.div("vs. League Average ",
                       ui.span(f"unweighted mean, all {division_label} players", class_="sub"),
                       class_="col-title"),
