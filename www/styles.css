@@ -736,3 +736,30 @@ html, body {
 
 #ratings-tab .ratings-percentile.high { color: var(--pos-gf); }
 #ratings-tab .ratings-percentile.low { color: #f28b8b; }
+
+#ratings-tab td.ratings-skill-cell {
+  min-width: 124px;
+  padding-block: .8rem;
+}
+
+#ratings-tab .ratings-skill-cell .ratings-stat-value {
+  min-height: 1.35em;
+  color: var(--ink);
+  text-align: right;
+}
+
+#ratings-tab .ratings-stat-details {
+  display: flex;
+  align-items: baseline;
+  min-height: 1.35em;
+  gap: .65rem;
+  margin-top: .32rem;
+  font-size: .7rem;
+  white-space: nowrap;
+}
+
+#ratings-tab .ratings-projection { color: var(--ink-2); }
+#ratings-tab .ratings-stat-details .ratings-percentile {
+  margin-top: 0;
+  margin-inline-start: auto;
+}

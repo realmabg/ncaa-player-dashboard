@@ -68,15 +68,9 @@ def ratings_tab_ui():
                 ),
             ),
             ui.div(
-                ui.input_radio_buttons("ratings_stat_mode", "Stat view",
-                                       {"actual": "Actual", "projected": "Projected"},
-                                       selected="actual", inline=True),
-                ui.panel_conditional(
-                    "input.ratings_stat_mode === 'projected'",
-                    ui.input_radio_buttons("ratings_projection_period", "Projection period",
-                                           {"updated": "Rest of season", "preseason": "Preseason"},
-                                           selected="updated", inline=True),
-                ),
+                ui.input_radio_buttons("ratings_projection_period", "Projection period",
+                                       {"updated": "Rest of season", "preseason": "Preseason"},
+                                       selected="updated", inline=True),
                 class_="ratings-stat-controls",
             ),
             ui.div(
@@ -173,9 +167,8 @@ def ratings_tab_server(input, session):
         season = int(meta["season"])
         expected = int(meta["expected_games"])
         projections = projections_for_season(season)
-        mode = selected_stat_mode()
-        labels = {"actual": "Actual stats", "updated": "Rest-of-season projections",
-                  "preseason": "Preseason projections"}
+        period = projection_period()
+        labels = {"updated": "Rest-of-season projections", "preseason": "Preseason projections"}
         return ui.TagList(
             ui.p(f"{season - 1}–{str(season)[-2:]} season · Games through {meta['through_date']}"),
             ui.p(
@@ -186,20 +179,19 @@ def ratings_tab_server(input, session):
                 f"({int(meta['rapm_excluded_possessions']):,} possessions excluded)"
             ),
             ui.p(
-                f"{labels[mode]} through {projections[f'{mode}_through']}"
+                f"Actual stats through {projections['actual_through']} · "
+                f"{labels[period]} through {projections[f'{period}_through']}"
             ) if projections else None,
         )
 
     @reactive.calc
-    def selected_stat_mode():
-        if input.ratings_stat_mode() == "projected":
-            return input.ratings_projection_period() or "updated"
-        return "actual"
+    def projection_period():
+        return input.ratings_projection_period() or "updated"
 
     @reactive.calc
     def stats_board():
         frame = snapshot.get()
-        return with_stat_percentiles(frame, selected_stat_mode()) if frame is not None else None
+        return with_stat_percentiles(frame, projection_period()) if frame is not None else None
 
     @reactive.calc
     def ratings_rows():
@@ -259,19 +251,22 @@ def skill_columns(frame):
     return [column for column in frame.columns if column.startswith("skill_")]
 
 
-def with_stat_percentiles(frame, mode):
+def with_stat_percentiles(frame, period):
     projections = projections_for_season(int(frame.iloc[0]["season"]))
     directions = {"bpm": True, "rapm": True}
     if projections:
         stats = projections["stats"]
         keys = [f"skill_{i}" for i in range(len(stats))]
-        values = [
-            projection_values(projections, name, team, mode) if pd.notna(name) and pd.notna(team)
-            else [None] * len(keys)
-            for name, team in frame[["player_name", "team"]].itertuples(index=False, name=None)
-        ]
-        columns = pd.DataFrame(values, columns=keys, index=frame.index, dtype=float)
-        frame = pd.concat([frame, columns], axis=1)
+        names_and_teams = list(frame[["player_name", "team"]].itertuples(index=False, name=None))
+        stat_columns = []
+        for mode, columns in (("actual", keys), (period, [f"proj_{key}" for key in keys])):
+            values = [
+                projection_values(projections, name, team, mode) if pd.notna(name) and pd.notna(team)
+                else [None] * len(keys)
+                for name, team in names_and_teams
+            ]
+            stat_columns.append(pd.DataFrame(values, columns=columns, index=frame.index, dtype=float))
+        frame = pd.concat([frame, *stat_columns], axis=1)
         directions.update({key: stat["key"] not in LOWER_IS_BETTER
                            for key, stat in zip(keys, stats, strict=True)})
     percentiles = {}
@@ -283,12 +278,23 @@ def with_stat_percentiles(frame, mode):
     return frame.assign(**percentiles)
 
 
-def stat_cell(value, percentile):
-    if not value:
+def stat_cell(value, percentile, *, projection=None):
+    if not value and not projection:
         return '<td class="ratings-stat-cell"></td>'
-    tone = "high" if percentile >= 75 else "low" if percentile < 25 else "mid"
-    return (f'<td class="ratings-stat-cell"><span class="ratings-stat-value">{value}</span>'
-            f'<span class="ratings-percentile {tone}">{percentile:.0f}%</span></td>')
+    number = f'<span class="ratings-stat-value">{value}</span>'
+    rank = ""
+    if pd.notna(percentile):
+        rounded = round(percentile)
+        tone = "high" if rounded >= 75 else "low" if rounded < 25 else "mid"
+        suffix = "th" if 11 <= rounded % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(rounded % 10, "th")
+        ordinal = f"{rounded}{suffix}"
+        label = f"{rounded}%" if projection is None else ordinal
+        rank = f'<span class="ratings-percentile {tone}" title="{ordinal} percentile">{label}</span>'
+    if projection is None:
+        return f'<td class="ratings-stat-cell">{number}{rank}</td>'
+    forecast = f'<span class="ratings-projection">Proj. {projection}</span>' if projection else ""
+    return (f'<td class="ratings-stat-cell ratings-skill-cell">{number}'
+            f'<div class="ratings-stat-details">{forecast}{rank}</div></td>')
 
 
 def sort_header(column, label, sort_column, ascending, *, definition=None):
@@ -329,7 +335,8 @@ def render_ratings_board(rows, sort_column, ascending):
                                    getattr(record, f"pct_{column}")))
         for key, stat in zip(keys, stats, strict=True):
             value = format_projection(getattr(record, key), stat)
-            parts.append(stat_cell(value, getattr(record, f"pct_{key}")))
+            projection = format_projection(getattr(record, f"proj_{key}"), stat)
+            parts.append(stat_cell(value, getattr(record, f"pct_{key}"), projection=projection))
         parts.append("</tr>")
     parts.append("</tbody></table>")
     return "".join(parts)
