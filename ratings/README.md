@@ -20,3 +20,7 @@ into `projections/player_projections.json` for the page. The exporter is
 currently run manually in the forecasting workspace. The website needs a
 Pages rebuild to pick up a newer bundled forecast. The two dates can differ,
 and the page displays each data cutoff.
+
+**Watchlist only** uses the dashboard's shared Watchlist. Stars on player
+profiles update the same list used by the Watchlist page and Ratings. The
+site saves that list in this browser's local storage.

@@ -115,6 +115,14 @@
 #ratings-tab .ratings-percentile.high { color: var(--pos-gf); }
 #ratings-tab .ratings-percentile.low { color: #f28b8b; }
 
+#ratings-tab .ratings-stat-cell:has(.ratings-percentile.high) {
+  background: color-mix(in srgb, var(--pos-gf) 14%, var(--ratings-row));
+}
+
+#ratings-tab .ratings-stat-cell:has(.ratings-percentile.low) {
+  background: color-mix(in srgb, #f28b8b 14%, var(--ratings-row));
+}
+
 #ratings-tab td.ratings-skill-cell {
   min-width: 124px;
   padding-block: .8rem;
