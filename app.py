@@ -4120,6 +4120,8 @@ TRITON_TRACKER_STORAGE_KEY = "ucsd_triton_tracker_historical_ids_v1"
 def watchlist_rows(player_ids):
     rows = []
     for pid in player_ids:
+        if not isinstance(pid, str):
+            continue
         if pid.startswith("d1"):
             df_, div_ = d1_df, "D-I"
         elif pid.startswith("d3"):
@@ -7512,8 +7514,6 @@ app_ui = ui.page_fluid(
 
 def server(input, output, session):
 
-    ratings_tab_server(input, session)
-
     d1_sel    = reactive.Value(None)
     d1_dim    = reactive.Value(set())
     d2_sel    = reactive.Value(None)
@@ -7521,6 +7521,11 @@ def server(input, output, session):
     d3_sel    = reactive.Value(None)
     d3_dim    = reactive.Value(set())
     watchlist = reactive.Value(set())
+    ratings_tab_server(
+        input, session,
+        watchlisted_players=lambda: (row for _, row, _, div in watchlist_rows(watchlist.get()) if div == "D-I"),
+        team_key=normalize_team_lookup_key,
+    )
     # Flipped once the browser has handed back its stored watchlist, so the
     # empty starting set is never written over what was already saved.
     watchlist_restored = reactive.Value(False)
@@ -7858,7 +7863,9 @@ def server(input, output, session):
     @reactive.event(input.watchlist_restore)
     def _restore_watchlist():
         payload = input.watchlist_restore() or {}
-        stored = payload.get("ids") or [] if isinstance(payload, dict) else []
+        stored = payload.get("ids") if isinstance(payload, dict) else None
+        if not isinstance(stored, (list, tuple)):
+            stored = []
         # Rosters change between data refreshes; drop ids that no longer
         # resolve to a player rather than carrying dead cards forward.
         restored = {pid for pid, *_ in watchlist_rows(stored)}
@@ -7953,7 +7960,9 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.toggle_watchlist)
     def _toggle_watchlist():
-        pid  = input.toggle_watchlist()
+        pid = input.toggle_watchlist()
+        if not watchlist_rows([pid]):
+            return
         curr = set(watchlist.get())
         curr.discard(pid) if pid in curr else curr.add(pid)
         watchlist.set(curr)
@@ -9354,17 +9363,7 @@ def server(input, output, session):
                               style="color:var(--ink-3);max-width:280px;text-align:center;line-height:1.5")))
 
         cards = []
-        for pid in wl:
-            if pid.startswith("d1"):
-                df_, div_ = d1_df, "D-I"
-            elif pid.startswith("d3"):
-                df_, div_ = d3_df, "D-III"
-            else:
-                df_, div_ = d2_df, "D-II"
-            row_ = df_[df_["id"] == pid]
-            if row_.empty:
-                continue
-            r   = row_.iloc[0]
+        for pid, r, _, div_ in watchlist_rows(wl):
             pc_ = ARCHETYPE_COLOR.get(r["primary_archetype"], POS_COLOR.get(r["pos"], "#888"))
             open_js = f"Shiny.setInputValue('wl_open_player','{pid}',{{priority:'event'}})"
             cards.append(

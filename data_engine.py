@@ -603,6 +603,10 @@ def load_d1_data(
     df["team"]     = t("team")
     df["conf"]     = t("conf")
     df["confName"] = df["conf"].map(D1_CONF_NAMES).fillna(df["conf"])
+    if {"pbp_pid", "pbp_join_method", "pbp_join_warning"}.issubset(raw.columns):
+        pbp_id = pd.to_numeric(raw["pbp_pid"], errors="coerce")
+        verified_id = t("pbp_join_method").eq("pid") & t("pbp_join_warning").eq("")
+        df["torvik_player_id"] = pbp_id.where(verified_id).astype("Int64")
 
     # Position — map role to 5-category system
     df["pos"] = t("role").map(D1_ROLE_MAP).fillna("G")

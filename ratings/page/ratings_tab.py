@@ -12,6 +12,7 @@ from shiny import reactive, render, ui
 from ratings.projections.player_projections import (
     STAT_HEADERS, format_projection, projection_values, projections_for_season,
 )
+from ratings.projections.projection_keys import name_key
 
 CSV_URL = (
     "https://raw.githubusercontent.com/Siddhu-S/ncaa-player-dashboard/"
@@ -61,6 +62,7 @@ def ratings_tab_ui():
                     )),
                     ratings_filter(ui.input_select("ratings_limit", "Board length",
                                                    choices=BOARD_LENGTHS, selected="100")),
+                    ratings_filter(ui.input_checkbox("ratings_watchlist_only", "Watchlist only")),
                 ),
                 ui.div(
                     {"class": "triton-filter-row triton-filter-row--second"},
@@ -115,7 +117,7 @@ def read_ratings(raw):
     return frame
 
 
-def ratings_tab_server(input, session):
+def ratings_tab_server(input, session, *, watchlisted_players, team_key):
     snapshot = reactive.Value(None)
     sort = reactive.Value(("rapm", False))
 
@@ -195,6 +197,9 @@ def ratings_tab_server(input, session):
         if frame is None:
             return None, 0
 
+        if input.ratings_watchlist_only():
+            frame = filter_watchlist(frame, watchlisted_players(), team_key)
+
         bpm_min = input.ratings_bpm_min()
         bpm_max = input.ratings_bpm_max()
         rapm_min = input.ratings_rapm_min()
@@ -236,11 +241,44 @@ def ratings_tab_server(input, session):
         if rows is None:
             return None
         if rows.empty:
-            return ui.div("No players match those filters.", class_="triton-empty")
+            message = ("No watchlisted players match those filters." if input.ratings_watchlist_only()
+                       else "No players match those filters.")
+            return ui.div(message, class_="triton-empty")
         column, ascending = sort.get()
         if column not in rows:
             column, ascending = "rapm", False
         return ui.HTML(render_ratings_board(rows, column, ascending))
+
+
+def filter_watchlist(frame, players, team_key):
+    if frame.empty:
+        return frame
+    saved_ids, saved_keys, keys_without_ids = set(), set(), set()
+    for player in players:
+        player_key = (name_key(player["name"]), team_key(player["team"]))
+        saved_keys.add(player_key)
+        player_id = player.get("torvik_player_id")
+        if pd.notna(player_id):
+            saved_ids.add(int(player_id))
+        else:
+            keys_without_ids.add(player_key)
+    if not saved_keys:
+        return frame.iloc[:0]
+
+    projections = projections_for_season(int(frame["season"].iloc[0]))
+    crosswalk = projections["names"] if projections else {}
+    names = frame["player_name"].fillna("").map(name_key)
+    teams = frame["team"].fillna("")
+    keys = pd.Series(list(zip(names, teams.map(team_key))), index=frame.index)
+    current_ids = pd.Series(
+        [crosswalk.get(team, {}).get(name) for team, name in zip(teams, names)],
+        index=frame.index,
+    )
+    # Keep transfers when their IDs match. Use same-team names as a fallback
+    # only when an ID is missing and the current name/team combination is unique.
+    unique_keys = ~keys.duplicated(keep=False)
+    fallback = unique_keys & (keys.isin(keys_without_ids) | (current_ids.isna() & keys.isin(saved_keys)))
+    return frame.loc[current_ids.isin(saved_ids) | fallback]
 
 
 def skill_columns(frame):
