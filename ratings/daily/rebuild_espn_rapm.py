@@ -105,6 +105,10 @@ ESPN_NAME_VARIANTS = {
     ("2097", "AJ Wright Jr."): ("12153373", "1", 145300),
     ("2172", "Baba Mbengue"): ("11954700", "21", 126840),
     ("71", "Gustavo Guimares"): ("11477609", "17", 134893),
+    # https://lemoynedolphins.com/sports/mens-basketball/stats/2026-27/manhattan-university/boxscore/15877
+    ("2363", "Asier Miguel"): ("11480682", "11", None),
+    # https://towsontigers.com/sports/mens-basketball/stats/2026-27/umbc/boxscore/29798
+    ("119", "Stephon Ashley Wright"): ("12195893", "0", None),
     # https://fgcuathletics.com/sports/mens-basketball/roster/2026-27
     ("526", "BB Washington"): ("11479253", "8", None),
     ("526", "CJ Outlaw"): ("11593006", "45", None),
