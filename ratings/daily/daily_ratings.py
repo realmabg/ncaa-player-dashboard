@@ -23,7 +23,7 @@ import ratings_store as store
 
 # Increment INPUT_RULES_VERSION when validation, source selection or curated
 # corrections change. The next successful run revalidates stored games.
-INPUT_RULES_VERSION = 4
+INPUT_RULES_VERSION = 5
 MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
                  f"+inputs-v{INPUT_RULES_VERSION}")
 
@@ -648,6 +648,23 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
                 agreeing = [source for source, rows in unvalidated.items()
                             if not box_conflicts(official, rows, compare_minutes=False)]
                 school_review = {"url": url, "counting_stats_confirmed_by": agreeing}
+                if event == "401922220" and "espn" in unvalidated and "espn" not in agreeing:
+                    # The official book accounts for all 200 UNF minutes and omits Bergantino.
+                    # ESPN's extra row has zero minutes and only the disputed foul.
+                    espn_rows = unvalidated["espn"]
+                    corroborating = [
+                        row for row in espn_rows
+                        if not (row[51] == "ncaa:12151694" and row[8] == 0
+                                and all(row[col] == int(stat == "fouls")
+                                        for stat, col in BOX_COLUMNS.items()))
+                    ]
+                    if (len(corroborating) == len(espn_rows) - 1
+                        and not box_conflicts(official, corroborating, compare_minutes=False)):
+                        agreeing.append("espn")
+                        school_review["excluded_espn_box_row"] = {
+                            "player_id": "12151694", "minutes": 0, "fouls": 1,
+                            "reason": "Player is absent from the official box and substitution log",
+                        }
                 if timing_sources != {url}:
                     school_review["short_appearances"] = [
                         {"player_id": row["player_id"], "minutes": float(row["minutes"]),
