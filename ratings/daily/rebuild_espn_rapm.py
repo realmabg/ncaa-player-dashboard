@@ -101,6 +101,10 @@ ESPN_NAME_VARIANTS = {
     ("2502", "Gantas Krianauskas"): ("12149647", "22", 144919),
     ("2502", "Emil Skytt"): ("12149653", "8", 76032),
     ("249", "Cash Chavis"): ("12151866", "1", 126524),
+    ("2751", "Mike Mora"): ("12153860", "1", 145340),
+    ("2097", "AJ Wright Jr."): ("12153373", "1", 145300),
+    ("2172", "Baba Mbengue"): ("11954700", "21", 126840),
+    ("71", "Gustavo Guimares"): ("11477609", "17", 134893),
     # https://fgcuathletics.com/sports/mens-basketball/roster/2026-27
     ("526", "BB Washington"): ("11479253", "8", None),
     ("526", "CJ Outlaw"): ("11593006", "45", None),

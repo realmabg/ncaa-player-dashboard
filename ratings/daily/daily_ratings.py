@@ -23,7 +23,7 @@ import ratings_store as store
 
 # Increment INPUT_RULES_VERSION when validation, source selection or curated
 # corrections change. The next successful run revalidates stored games.
-INPUT_RULES_VERSION = 2
+INPUT_RULES_VERSION = 3
 MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
                  f"+inputs-v{INPUT_RULES_VERSION}")
 
@@ -39,6 +39,10 @@ VERIFIED_FINALS = {
                   "https://seminoles.com/sports/mens-basketball/stats/2026/florida-am/boxscore/16827"),
     "401920378": ({"627235": 88, "627342": 93},
                   "https://hawkeyesports.com/sports/mbball/schedule"),
+    "401925079": ({"627284": 84, "627537": 83},
+                  "https://nsudemons.com/news/2026/11/14/demon-basketball-demons-ot-buzzer-beater-waved-off-as-nsu-falls-at-little-rock.aspx"),
+    "401925889": ({"627434": 71, "627533": 46},
+                  "https://uncbears.com/news/2026/11/14/mens-basketball-bears-fall-at-south-dakota-state"),
 }
 BOX_FIELDS = dict(two_made="fgm", two_attempts="fga", threes="tpm", three_attempts="tpa",
                   free_throws="ftm", fta="fta", points="pts", orb="orb", drb="drb",

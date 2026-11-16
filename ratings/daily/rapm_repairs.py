@@ -158,6 +158,15 @@ def collect_play_evidence(events, cutoff, parse_date):
         possession = (event["period"], event["poss_num"])
         if colgate_team_basket(event):
             shots[game][possession].append(("Colgate", 2, "Own basket"))
+        elif (
+            game == "6630675" and possession == ("1", "13") and event["clock"] == "14:39"
+            and event["event_team"] == "Queens (NC)"
+            and event["event_type"] == "Wrong Basket (2pt Opp. Team)"
+            and (event["home_score"], event["away_score"]) == ("7", "11")
+        ):
+            # The school game book credits Cam Lowe with the tip-in.
+            # https://queensathletics.com/sports/mens-basketball/stats/2026-2027/wofford/boxscore/13477
+            shots[game][possession].append(("Wofford", 2, "Missed scoring credit"))
         elif event["event_result"] == "made":
             value = event["shot_value"]
             points = int(value) if value in ("1", "2", "3") else None
@@ -221,7 +230,8 @@ def reconcile_points(possessions, shots, final_score, team_names):
             points[team] += scored
             if event_type == "Own basket":
                 continue
-            total += scored
+            if event_type != "Missed scoring credit":
+                total += scored
             if team == offense:
                 offense_points += scored
             elif event_type != "Free Throw":
