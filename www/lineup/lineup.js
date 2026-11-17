@@ -500,11 +500,12 @@ function renderLineup() {
     }
     if (row?.classList.contains('player-row')) {
       const p = PLAYERS[id];
-      const rating = getEffectiveBpm(p);
-      const bpm = row.querySelector('.p-bpr');
-      bpm.textContent = (rating > 0 ? '+' : '') + rating;
-      bpm.title = 'Lineup BPM';
-      bpm.className = 'p-bpr ' + (rating >= 3 ? 'c-gold' : rating >= 0 ? 'c-muted' : 'c-red');
+      const rating = playerImpactScore(p);
+      const badge = row.querySelector('.p-bpr');
+      const hasRating = Number.isFinite(rating);
+      badge.textContent = formatImpact(rating);
+      badge.title = hasRating ? 'Score' : 'Score unavailable for this player';
+      badge.className = 'p-bpr ' + (rating >= 3 ? 'c-gold' : !hasRating || rating >= 0 ? 'c-muted' : 'c-red');
       row.querySelector('.p-ts').textContent = `TS% ${p.ts.toFixed(1)}`;
       row.className = inSlot
         ? 'player-row in-lineup'
@@ -520,13 +521,14 @@ function renderLineup() {
     const id = lineup[i];
     if (id && PLAYERS[id]) {
       const p = PLAYERS[id];
-      const effBpr = getEffectiveBpm(p);
-      const bprColor = effBpr >= 3 ? 'var(--green)' : effBpr >= 1 ? 'var(--gold)' : effBpr >= 0 ? 'var(--muted)' : 'var(--red)';
+      const rating = playerImpactScore(p);
+      const ratingColor = rating >= 3 ? 'var(--green)' : rating >= 1 ? 'var(--gold)' :
+        !Number.isFinite(rating) || rating >= 0 ? 'var(--muted)' : 'var(--red)';
       slot.className = 'slot filled';
       slot.innerHTML = `
         <div class="slot-pos">${SLOT_LABELS[i]}</div>
         <div class="slot-name">${htmlEscape(shortName(p))}</div>
-        <div class="slot-bpr" style="color:${bprColor}">BPM ${effBpr > 0 ? '+' : ''}${effBpr}</div>
+        <div class="slot-bpr" style="color:${ratingColor}">Score ${formatImpact(rating)}</div>
         <button class="slot-remove" onclick="removeFromSlot(${i})">✕</button>
       `;
     } else {
@@ -1206,7 +1208,7 @@ function openDrawer(id) {
   document.getElementById('drawer-tag').textContent = `#${p.num} · ${p.pos} · ${p.yr} · ${p.ht}`;
   document.getElementById('drawer-name').textContent = p.name;
   document.getElementById('drawer-sub').textContent =
-    `BPM ${formatImpact(bpm.value)} · RAPM ${formatImpact(lineupRapm(p))} · TS% ${p.ts} · USG% ${p.usg}`;
+    `Score ${formatImpact(playerImpactScore(p))} · TS% ${p.ts} · USG% ${p.usg}`;
   (function(){
     const el = document.getElementById('drawer-teamctx');
     if (!el) return;
@@ -2601,6 +2603,10 @@ function mixImpact(bpm, rapm) {
   if (ratingMetricWeight === 1) return rapm;
   if (!Number.isFinite(bpm) || !Number.isFinite(rapm)) return null;
   return (1 - ratingMetricWeight) * bpm + ratingMetricWeight * rapm;
+}
+
+function playerImpactScore(player) {
+  return mixImpact(getEffectiveBpm(player), lineupRapm(player));
 }
 
 const HISTORICAL_TIER_RANK = {

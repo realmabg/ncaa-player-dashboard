@@ -7502,7 +7502,7 @@ app_ui = ui.page_fluid(
                             allow_nan=False, separators=(",", ":"),
                         ),
                         "data-ratings-csv": RATINGS_CSV_URL,
-                        "data-src": "lineup/index.html?v=20261116j",
+                        "data-src": "lineup/index.html?v=20261116m",
                     },
                     id="ucsd-lineup-frame",
                     title="UCSD lineup predictor",
