@@ -14,7 +14,7 @@ from data_engine import (
     load_data, load_d1_data,
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
-from ratings.page.ratings_tab import ratings_tab_server, ratings_tab_ui
+from ratings.page.ratings_tab import CSV_URL as RATINGS_CSV_URL, ratings_tab_server, ratings_tab_ui
 from ratings.projections.player_projections import lineup_forecast_payload
 
 HERE = Path(__file__).parent
@@ -4164,7 +4164,6 @@ def build_watchlist_lineup_candidates(player_ids):
         three_pct = _lineup_number(row.get("tp"), default=0, scale_small=True)
         ts_pct = _lineup_number(row.get("ts"), default=0, scale_small=True)
         ftr = _lineup_number(row.get("ftr"), default=0)
-        prpgi = _lineup_number(row.get("porpag"), default=row.get("prpgi", 0))
         ind_drtg = _lineup_number(row.get("adj_drtg"), default=row.get("indDrtg", 102.5))
         candidate = {
             "lineupId": f"watchlist_{pid}",
@@ -4182,7 +4181,6 @@ def build_watchlist_lineup_candidates(player_ids):
             "adjBpr": adj_bpm,
             "obpr": _lineup_number(row.get("obpm"), default=row.get("obpr", 0)),
             "dbpr": _lineup_number(row.get("dbpm"), default=row.get("dbpr", 0)),
-            "prpgi": prpgi,
             "ts": ts_pct,
             "usg": _lineup_number(row.get("usg"), default=0, scale_small=True),
             "threeRate": _lineup_number(row.get("three_share"), default=0),
@@ -4201,7 +4199,7 @@ def build_watchlist_lineup_candidates(player_ids):
                 f"{f' ({html.escape(conf)})' if conf else ''}"
                 f" · {html.escape(div_)} · {html.escape(_lineup_text(row.get('cls'), ''))}"
                 f" · {html.escape(ht)}</strong><br>"
-                f"BPM: {adj_bpm:+.1f} · TS%: {ts_pct:.1f} · PRPG!: {prpgi:+.1f}"
+                f"BPM: {adj_bpm:+.1f} · TS%: {ts_pct:.1f}"
                 f" · 3PT%: {three_pct:.1f} · DRtg: {ind_drtg:.1f}"
             ),
         }
@@ -7503,7 +7501,8 @@ app_ui = ui.page_fluid(
                             lineup_forecast_payload(2027, "UC San Diego"),
                             allow_nan=False, separators=(",", ":"),
                         ),
-                        "data-src": "lineup/index.html?v=20261115",
+                        "data-ratings-csv": RATINGS_CSV_URL,
+                        "data-src": "lineup/index.html?v=20261116j",
                     },
                     id="ucsd-lineup-frame",
                     title="UCSD lineup predictor",

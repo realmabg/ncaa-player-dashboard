@@ -822,36 +822,25 @@ h1 span { color: var(--gold-bright); }
   gap: 8px 14px;
   margin-bottom: 12px;
 }
-.prpg-control {
+.rating-weight-control {
   display: flex;
+  flex-basis: 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
   font-size: 11px;
 }
-.prpg-control .minutes-slider { flex: 0 0 110px; width: 110px; }
-.prpg-control output { color: var(--muted); min-width: 21ch; }
-.conf-adjustment {
-  padding: 7px 12px;
-  border: 1px solid var(--border2);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
+.rating-weight-control label { min-width: 13ch; }
+.rating-weight-control .minutes-slider { flex: 0 0 110px; width: 110px; }
+.rating-weight-control output { color: var(--muted); min-width: 23ch; }
+.ratings-feed-status { flex-basis: 100%; }
+.ratings-feed-status, .rating-rapm {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
-.conf-adjustment[aria-pressed="true"] {
-  border-color: var(--gold);
-  background: var(--gold);
-  color: var(--bg);
-}
-.conf-adjustment:focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 3px;
-}
-
+.ratings-feed-status span { display: block; }
+.rating-rapm { margin-top: 5px; color: var(--text); font-size: 12px; font-weight: 600; }
 .minutes-val {
   font-family: 'Bebas Neue', sans-serif;
   font-size: 16px;
@@ -1118,14 +1107,6 @@ h1 span { color: var(--gold-bright); }
   width: 110px;
   flex-shrink: 0;
 }
-.portal-tag {
-  font-size: 8px;
-  background: var(--gold-tint);
-  color: var(--gold-dim);
-  border-radius: 2px;
-  padding: 1px 5px;
-  flex-shrink: 0;
-}
 .portal-stat {
   font-size: 9px;
   color: var(--muted);
@@ -1160,4 +1141,4 @@ h1 span { color: var(--gold-bright); }
 .forecast-conference { display: flex; gap: 6px; }
 .projection-source { margin: 4px 0 12px; font-size: 10px; color: var(--muted); }
 .forecast-conference [aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: var(--bg); font-weight: 600; }
-.forecast-conference button:disabled { opacity: 0.5; cursor: default; }
+.forecast-conference button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }

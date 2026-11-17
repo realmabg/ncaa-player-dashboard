@@ -15,7 +15,7 @@ const OLD_WATCHLIST_STORAGE_KEY = 'ucsd_watchlist_lineup_candidates_v2';
 const TEAM_DATA = {"UC San Diego": {"oe": 107.8,"de": 103.5,"em": 4.3,"rk": 121,"rkOE": 196,"rkDE": 69},"UC Irvine": {"oe": 104.6,"de": 98.9,"em": 5.71,"rk": 107,"rkOE": 264,"rkDE": 26},"UC Santa Barbara": {"oe": 113.7,"de": 110.8,"em": 2.95,"rk": 132,"rkOE": 98,"rkDE": 209},"UC Riverside": {"oe": 104.0,"de": 111.9,"em": -7.96,"rk": 261,"rkOE": 273,"rkDE": 232},"UC Davis": {"oe": 108.0,"de": 107.3,"em": 0.67,"rk": 162,"rkOE": 190,"rkDE": 135},"Cal Poly": {"oe": 109.4,"de": 113.3,"em": -3.89,"rk": 214,"rkOE": 165,"rkDE": 258},"Cal St. Fullerton": {"oe": 109.3,"de": 109.3,"em": 0.02,"rk": 170,"rkOE": 169,"rkDE": 176},"Cal St. Bakersfield": {"oe": 101.9,"de": 117.4,"em": -15.54,"rk": 327,"rkOE": 304,"rkDE": 323},"Long Beach St.": {"oe": 105.6,"de": 111.5,"em": -5.98,"rk": 233,"rkOE": 243,"rkDE": 224},"Hawaii": {"oe": 107.2,"de": 101.6,"em": 5.58,"rk": 108,"rkOE": 212,"rkDE": 47},"Loyola Chicago": {"oe": 103.6,"de": 113.5,"em": -9.87,"rk": 280,"rkOE": 280,"rkDE": 261},"Oregon St.": {"oe": 109.2,"de": 110.0,"em": -0.86,"rk": 179,"rkOE": 174,"rkDE": 191},"Florida Gulf Coast": {"oe": 105.7,"de": 112.3,"em": -6.57,"rk": 244,"rkOE": 240,"rkDE": 241},"Indiana St.": {"oe": 106.1,"de": 109.3,"em": -3.16,"rk": 207,"rkOE": 227,"rkDE": 175},"Northeastern": {"oe": 107.5,"de": 118.3,"em": -10.76,"rk": 287,"rkOE": 206,"rkDE": 333},"Pacific": {"oe": 110.7,"de": 105.4,"em": 5.26,"rk": 112,"rkOE": 144,"rkDE": 101},"West Virginia": {"oe": 111.9,"de": 97.2,"em": 14.67,"rk": 55,"rkOE": 123,"rkDE": 18},"North Dakota": {"oe": 106.8,"de": 116.6,"em": -9.84,"rk": 279,"rkOE": 216,"rkDE": 313},"Wake Forest": {"oe": 116.9,"de": 106.4,"em": 10.58,"rk": 80,"rkOE": 70,"rkDE": 113},"Columbia": {"oe": 108.6,"de": 110.7,"em": -2.09,"rk": 193,"rkOE": 182,"rkDE": 205},"Oakland": {"oe": 115.4,"de": 115.1,"em": 0.25,"rk": 168,"rkOE": 81,"rkDE": 293},"St. Thomas": {"oe": 112.9,"de": 108.0,"em": 4.92,"rk": 115,"rkOE": 108,"rkDE": 142},"Nebraska": {"oe": 119.5,"de": 93.0,"em": 26.58,"rk": 16,"rkOE": 47,"rkDE": 8},"Seton Hall": {"oe": 110.8,"de": 94.7,"em": 16.09,"rk": 51,"rkOE": 143,"rkDE": 15},"LSU": {"oe": 119.9,"de": 106.7,"em": 13.19,"rk": 61,"rkOE": 45,"rkDE": 124}};
 let UCSD_ADJ_OE = 107.8, UCSD_ADJ_DE = 103.5, UCSD_ADJ_EM = 4.30;
 const PRIOR_ADJ_OE = 107.8, PRIOR_ADJ_DE = 103.5;
-// True conference strength: (conf avg AdjEM - Big West avg AdjEM) x 0.20 translation
+// Conference translation used by the separate team efficiency projection.
 const CONF_TRUE = {"BW": 0.0, "ACC": 3.28, "B12": 4.05, "BE": 2.99, "B10": 4.0, "SEC": 4.2, "WCC": 1.11, "MVC": 0.64, "CAA": -0.37, "Ivy": -0.15, "Horz": -0.49, "Sum": -1.23, "ASun": -1.31, "JUCO": -1.5, "D2": -3.0, "Pat": -0.6};
 function teamCtx(t){ return TEAM_DATA[t] || null; }
 function playerTeamOE(p){
@@ -27,7 +27,7 @@ function adjTSof(p){
 }
 function effOBPMof(p){
   const ca = (p.fromConf && CONF_TRUE[p.fromConf] !== undefined) ? CONF_TRUE[p.fromConf] : 0;
-  return (p.obpr || 0) + (showAdjusted ? ca : 0);
+  return (p.obpr || 0) + ca;
 }
 // UCSD returner usage-weighted OBPM baseline (they produced the actual 107.8)
 const OBPM_BASE = 0.421;
@@ -50,81 +50,8 @@ function shooterCount(list, weights){
   return s;
 }
 
-// ─── CONFERENCE STRENGTH (from KenPom NetRtg of .500 team) ─────
-// Big West: -0.96 (baseline)
-// WCC: +3.94 | MVC: +2.94 | MAC: -3.23
-// Conference strength measured from 2025-26 team AdjEM (summary26).
-// value = (conf avg AdjEM - Big West avg AdjEM) x 0.20 translation factor.
-// Big West avg AdjEM = -1.42 across 10 teams. Replaces the old raw-gap blankets,
-// which overstated power-conference lift by roughly 3-4x.
-const CONF_STRENGTH = {
-  bigwest: 0.00,
-  sec: 4.20,
-  big10: 4.00,
-  big12: 4.05,
-  acc: 3.28,
-  bigeast: 2.99,
-  wcc: 1.11,
-  mvc: 0.64,
-  caa: -0.37,
-  ivy: -0.15,
-  horizon: -0.49,
-  summit: -1.23,
-  asun: -1.31,
-  mwc: 2.42,
-  a10: 1.27,
-  aac: 0.44,
-  wac: 0.01,
-  cusa: -0.42,
-  mac: -0.81,
-  bigsky: -0.65,
-  coastal: -0.69,
-  sunbelt: -1.48,
-  bigsouth: -1.79,
-  southern: -2.02,
-  maac: -2.40,
-  southland: -0.80,
-  ovc: -2.78,
-  patriot: -2.92,
-  swac: -3.48,
-  nec: -3.64,
-  americaeast: -4.14,
-  meac: -5.20,
-  nznbl: -1.00,
-  wbi: 0.00,
-  other: 0.00,
-};
-function confAdj(rawBpr, theirConf) {
-  return +(rawBpr + (CONF_STRENGTH[theirConf] - CONF_STRENGTH.bigwest)).toFixed(1);
-}
-
-let showAdjusted = true;
-let prpgWeight = Number(document.getElementById('prpg-weight').value) / 100;
-
-function updatePrpgWeight(slider) {
-  const percent = Number(slider.value);
-  prpgWeight = percent / 100;
-  document.getElementById('prpg-blend').textContent = `${100 - percent}% BPM · ${percent}% PRPG!`;
-  slider.setAttribute('aria-valuetext', `${percent}% PRPG!, ${100 - percent}% BPM`);
-  updateSliderFill(slider, percent, 100);
-  renderLineup();
-  nmUpdateStats();
-}
-
-function toggleConferenceAdjustment() {
-  showAdjusted = !showAdjusted;
-  document.getElementById('conf-adj-btn').setAttribute('aria-pressed', String(showAdjusted));
-  document.getElementById('conf-adj-state').textContent = showAdjusted ? 'On' : 'Off';
-  renderLineup();
-  nmUpdateStats();
-}
-
-function getEffectiveBpr(player, weight = prpgWeight) {
-  const rawBpm = player.bpr;
-  const prpg = Number.isFinite(player.prpgi) ? player.prpgi : rawBpm;
-  const adjustment = showAdjusted ? (player.adjBpr ?? rawBpm) - rawBpm : 0;
-  const score = (1 - weight) * rawBpm + weight * prpg + adjustment;
-  return +score.toFixed(1);
+function getEffectiveBpm(player) {
+  return +lineupBpm(player).value.toFixed(1);
 }
 
 const PLAYERS = {
@@ -132,7 +59,7 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Leo Beath', num: 8, pos: 'PF/SF', yr: 'Sr', ht: '6-8',
     bpr: -0.1, obpr: 0.5, dbpr: -0.6, indDrtg: 100.8,
-    prpgi: 0.9, ts: 55.0, usg: 20.5, threeRate: 0.43, threePct: 32.9,
+    ts: 55.0, usg: 20.5, threeRate: 0.43, threePct: 32.9,
     arate: 15.0, oreb: 8.0, torate: 14.8, ftr: 30.0, stl: 1.3, blk: 2.4, dreb: 18.8, htIn: 80,
     note: `Beath is UCSD's most complete two-way player. His steal rate and block production at 6-8 give the lineup elite wing defense. <strong>Key concern:</strong> TS% dipped in conference play and 3PT% at 32.9% limits his spacing value. With Suutela providing interior presence, Beath can shift to a more off-ball role next year, which should <strong>improve his efficiency</strong>. His combination of rebounding (5.1 RPG) and assist creation (15.0 ARate) makes him one of the more versatile forwards in the Big West.`
   },
@@ -140,7 +67,7 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Tom Beattie', num: 9, pos: 'SG/PG/SF', yr: 'Sr', ht: '6-5',
     bpr: 2.6, obpr: 1.4, dbpr: 1.2, indDrtg: 100.4,
-    prpgi: 1.7, ts: 54.3, usg: 18.6, threeRate: 0.46, threePct: 31.2,
+    ts: 54.3, usg: 18.6, threeRate: 0.46, threePct: 31.2,
     arate: 20.5, oreb: 4.8, torate: 15.2, ftr: 32.0, stl: 2.4, blk: 0.7, dreb: 17.2, htIn: 77,
     note: `The engine of this team. Beattie led the team in assists in conference play (3.4 APG) and logged the most minutes per game (31.4). His <strong>ARate of 20.5 is legitimately elite</strong> for a mid-major guard. The concern: his 3PT% dropped to 27.0% in conference play. Adding Dotson as a second playmaker takes pressure off Beattie and could unlock more off-ball movement for him. His <strong>steal rate (2.4) is exceptional</strong> and gives this team a pressure defense identity.`
   },
@@ -148,7 +75,7 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Alex Chaikin', num: 10, pos: 'SG', yr: 'Jr', ht: '6-5',
     bpr: -0.5, obpr: 0.4, dbpr: -0.9, indDrtg: 106.0,
-    prpgi: -0.5, ts: 57.1, usg: 17.9, threeRate: 0.76, threePct: 38.2,
+    ts: 57.1, usg: 17.9, threeRate: 0.76, threePct: 38.2,
     arate: 8.0, oreb: 1.8, torate: 12.1, ftr: 18.0, stl: 1.1, blk: 1.3, dreb: 8.5, htIn: 77,
     note: `The most underrated player on this roster. Chaikin shot <strong>42.4% from 3 in conference play on real volume (50-118 attempts)</strong>. His 3PT attempt rate of 76% means he's almost purely a perimeter player, the ideal complement to interior finishers. <strong>Low DBPR (0.6)</strong> means he's a defensive liability — in a lineup with Beath and Beattie providing defensive presence, Chaikin's shooting value outweighs the risk.`
   },
@@ -156,7 +83,7 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Aidan Burke', num: 20, pos: 'SG/SF', yr: 'Sr', ht: '6-3',
     bpr: 0.0, obpr: 0.5, dbpr: -0.5, indDrtg: 103.3,
-    prpgi: 1.0, ts: 57.0, usg: 14.0, threeRate: 0.69, threePct: 31.0,
+    ts: 57.0, usg: 14.0, threeRate: 0.69, threePct: 31.0,
     arate: 11.4, oreb: 3.0, torate: 16.4, ftr: 22.0, stl: 2.0, blk: 1.0, dreb: 11.0, htIn: 75,
     note: `Burke's overall TS% of 57.0 is solid, but his <strong>3PT% in conference play dropped to 23.5%</strong> (12-51). His FT rate shows he can create contact. His best role next season is as a <strong>defensive wing off the bench</strong> — especially with Chaikin and Dotson as more reliable perimeter threats. If his 3PT% regresses to the mean, he becomes a real asset.`
   },
@@ -164,7 +91,7 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Jaden Vance', num: 13, pos: 'SF', yr: 'So', ht: '6-6',
     bpr: 0.7, obpr: 0.5, dbpr: 0.2, indDrtg: 97.8,
-    prpgi: 0.0, ts: 54.9, usg: 19.9, threeRate: 0.37, threePct: 33.0,
+    ts: 54.9, usg: 19.9, threeRate: 0.37, threePct: 33.0,
     arate: 9.1, oreb: 6.2, torate: 18.2, ftr: 28.0, stl: 3.2, blk: 3.3, dreb: 16.2, htIn: 78,
     note: `Vance has an intriguing physical profile — 6-6 with a <strong>block rate of 3.3% and steal rate of 3.2%</strong>. He only played 24 games but flashed real defensive upside. Strong candidate for a <strong>breakout sophomore season</strong>.`
   },
@@ -172,7 +99,7 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Dimitrije Vukicevic', num: 33, pos: 'C', yr: 'So', ht: '7-0',
     bpr: -1.2, obpr: -0.6, dbpr: -0.6, indDrtg: 100.6,
-    prpgi: 0.4, ts: 60.8, usg: 21.7, threeRate: 0.02, threePct: 0.0,
+    ts: 60.8, usg: 21.7, threeRate: 0.02, threePct: 0.0,
     arate: 14.0, oreb: 9.2, torate: 13.0, ftr: 38.0, stl: 1.7, blk: 2.8, dreb: 19.5, htIn: 84,
     note: `A 7-footer who shot <strong>60.0% from 2 on limited volume</strong>. His <strong>FT% of 50%</strong> is a late-game liability. At 7-0 with a 2.8 block rate, he changes the geometry of the defense. Best role: 12-18 minute interior specialist.`
   },
@@ -180,46 +107,46 @@ const PLAYERS = {
     team: 'UC San Diego',
     name: 'Cade Pendleton', num: 4, pos: 'C/PF', yr: 'Sr', ht: '6-10',
     bpr: -2.9, obpr: -1.8, dbpr: -1.1, indDrtg: 102.5,
-    prpgi: -0.1, ts: 35.9, usg: 15.5, threeRate: 0.74, threePct: 22.0,
+    ts: 35.9, usg: 15.5, threeRate: 0.74, threePct: 22.0,
     arate: 11.6, oreb: 9.5, torate: 19.5, ftr: 15.0, stl: 0.9, blk: 3.6, dreb: 17.8, htIn: 82,
     note: `Pendleton's TS% of 35.9 is the most significant red flag on the roster. His block rate (3.6%) shows rim protection value. With Suutela and Vukicevic in the program, his path to meaningful minutes narrows — best as a <strong>defensive specialist in specific matchups</strong>.`
   },
   brooks: {
     team: 'UC San Diego',
     name: 'Jasen Brooks', num: 11, pos: 'PG/SG', yr: 'Jr', ht: '6-0',
-    bpr: 0.2, adjBpr: 0.2, obpr: -0.3, dbpr: 0.5, indDrtg: 102.3,
+    bpr: 0.2, obpr: -0.3, dbpr: 0.5, indDrtg: 102.3,
     fromConf: 'bigwest',
-    prpgi: 3.6, ts: 50.0, usg: 19.1, threeRate: 0.60, threePct: 32.1,
+    ts: 50.0, usg: 19.1, threeRate: 0.60, threePct: 32.1,
     arate: 6.6, torate: 7.9, stl: 2.9, blk: 0.0, dreb: 8.5, oreb: 2.8,
     ftr: 5.3, htIn: 72,
-    note: `<strong>Returning — UCSD (Big West), Fr → Jr · PG/SG · 6-0 · #11.</strong> Brooks appeared in 18 games in 2024-25 in a limited role (4.2 MPG, 0 starts). His advanced metrics are striking for the sample size — <strong>PRPG! of +3.6 is the highest on the roster</strong>, driven by an elite <strong>TORate of just 7.9%</strong> (extremely low for any guard at any level).<br><br>
+    note: `<strong>Returning — UCSD (Big West), Fr → Jr · PG/SG · 6-0 · #11.</strong> Brooks appeared in 18 games in 2024-25 in a limited role (4.2 MPG, 0 starts). He posted a <strong>7.9% turnover rate</strong> in those minutes.<br><br>
     <strong>Shooting:</strong> 32.1% on 9-28 three-point attempts — adequate but limited volume. FT% of 100% (1-1) is too small to be meaningful. TS% of 50.0% reflects below-average efficiency overall.<br><br>
-    <strong>Context:</strong> The sample is very small (18 games, ~4 min/game) — treat PRPG! as a high-variance signal, not a projection. His standout metrics are ball security (TORate 7.9%) and defensive activity (STL% 2.9%). <strong>Key upside:</strong> If he can earn rotation minutes, his ball security profile is exactly what a team with Barno's TORate of 16.6% needs as a backup PG.`
+    <strong>Context:</strong> The sample is small (18 games, about 4 minutes per game). His 2.9% steal rate also stands out. <strong>Key upside:</strong> If he can earn rotation minutes, his ball security profile is exactly what a team with Barno's TORate of 16.6% needs as a backup PG.`
   },
   dotson: {
     team: 'Loyola Chicago',
     name: 'Kayde Dotson', num: 4, pos: 'PG/SG', yr: 'Jr', ht: '6-1',
-    bpr: -1.2, adjBpr: -0.56, obpr: -0.4, dbpr: -0.8, indDrtg: 108.3,
+    bpr: -1.2, obpr: -0.4, dbpr: -0.8, indDrtg: 108.3,
     fromConf: 'MVC',
-    prpgi: 1.6, ts: 56.1, usg: 20.6, threeRate: 0.67, threePct: 38.0, ftr: 26.0,
+    ts: 56.1, usg: 20.6, threeRate: 0.67, threePct: 38.0, ftr: 26.0,
     arate: 16.4, oreb: 3.2, torate: 17.4, stl: 1.2, blk: 0.2, dreb: 12.0, htIn: 73,
-    note: `<strong>Excellent addition.</strong> Dotson's conference ARate of 18.9 ranked #21 nationally. He's a high-volume 3PT shooter (62-163, 38.0%) who can also create off the dribble. TORate of 17.4% is the main concern. <strong>MVC → Big West conf. adjustment: +${confAdj(-1.2,'mvc')}</strong> (MVC is meaningfully stronger than Big West). Fits perfectly as a <strong>complementary playmaker next to Beattie</strong>.`
+    note: `<strong>Excellent addition.</strong> Dotson's conference ARate of 18.9 ranked #21 nationally. He's a high-volume 3PT shooter (62-163, 38.0%) who can also create off the dribble. TORate of 17.4% is the main concern. Fits perfectly as a <strong>complementary playmaker next to Beattie</strong>.`
   },
   suutela: {
     team: 'Oregon St.',
     name: 'Olavi Suutela', num: 37, pos: 'C/PF', yr: 'So', ht: '6-10',
-    bpr: -1.7, adjBpr: -0.59, obpr: -1.2, dbpr: -0.4, indDrtg: 105.0,
+    bpr: -1.7, obpr: -1.2, dbpr: -0.4, indDrtg: 105.0,
     fromConf: 'WCC',
-    prpgi: 1.0, ts: 63.7, usg: 16.4, threeRate: 0.26, threePct: 34.5, ftr: 47.4,
+    ts: 63.7, usg: 16.4, threeRate: 0.26, threePct: 34.5, ftr: 47.4,
     arate: 10.9, oreb: 7.8, torate: 12.0, stl: 1.4, blk: 0.8, dreb: 16.4, htIn: 82,
-    note: `<strong>The most impactful addition on the roster.</strong> Suutela's TS% of 63.7 is elite — driven by 65.1% 2PT shooting. His <strong>conference TS% of 62.1 (ranked #13 nationally)</strong> at Oregon State (WCC) proves this isn't a soft-competition number. <strong>WCC → Big West conf. adjustment: +${confAdj(-1.7,'wcc')}</strong> — WCC is nearly 5 points stronger than the Big West in conference quality, meaning his raw BPM significantly understates his expected Big West impact. <strong>In lineups with Chaikin and Dotson spacing the floor, Suutela at the 4/5 becomes one of the most efficient scoring options in the Big West.</strong>`
+    note: `<strong>The most impactful addition on the roster.</strong> Suutela's TS% of 63.7 is elite — driven by 65.1% 2PT shooting. His <strong>conference TS% of 62.1 (ranked #13 nationally)</strong> at Oregon State (WCC) proves this isn't a soft-competition number. <strong>In lineups with Chaikin and Dotson spacing the floor, Suutela at the 4/5 becomes one of the most efficient scoring options in the Big West.</strong>`
   },
   barno: {
     team: 'Florida Gulf Coast',
     name: 'Rahmir Barno', num: 1, pos: 'PG', yr: 'Jr', ht: '6-0',
-    bpr: -1.2, adjBpr: -2.51, obpr: 0.8, dbpr: -2.0, indDrtg: 103.5,
+    bpr: -1.2, obpr: 0.8, dbpr: -2.0, indDrtg: 103.5,
     fromConf: 'asun',
-    prpgi: 2.6, ts: 50.5, usg: 22.1, threeRate: 0.31, threePct: 29.6,
+    ts: 50.5, usg: 22.1, threeRate: 0.31, threePct: 29.6,
     arate: 28.1, torate: 16.6, stl: 2.6, blk: 0.5, dreb: 10.5, oreb: 1.2,
     ftr: 38.7, htIn: 72,
     note: `<strong>Portal target — FGCU (ASUN), So → Jr.</strong> Barno was a full-time starter in 2025-26, averaging 11.7 PPG and 5.0 APG in 31.6 MIN/G across all 34 games. His <strong>ARate of 28.1 (conf rank #6)</strong> is elite. ORtg of 105.3 at 22.1% usage is solid for an ASUN guard.<br><br>
@@ -230,8 +157,8 @@ const PLAYERS = {
   eaglestaff: {
     team: 'West Virginia',
     name: 'Treysen Eaglestaff', num: 5, pos: 'SG/SF', yr: 'Sr', ht: '6-6',
-    bpr: 2.8, adjBpr: 6.85, obpr: 0.1, dbpr: 1.4, fromConf: 'B12',
-    prpgi: 1.3, ts: 52.7, usg: 23.5, threeRate: 0.57, threePct: 35.5,
+    bpr: 2.8, obpr: 0.1, dbpr: 1.4, fromConf: 'B12',
+    ts: 52.7, usg: 23.5, threeRate: 0.57, threePct: 35.5,
     arate: 12.7, torate: 15.3, stl: 1.85, blk: 1.05, dreb: 12.25, oreb: 2.5,
     ftr: 24.1, htIn: 78, indDrtg: 101.8,
     note: `<strong>Committed — WVU (B12) 2025-26 + NoDak (Summit) 2024-25 · Sr · SG/SF · 6-6 · #5.</strong> Two-season blend: 60% B12 / 40% Summit by minutes. Raw BPM +2.8, adjBPM +9.56. High-volume 3PT shooter (57% of FGA from 3, 35.5% blended). DR% improved dramatically at WVU (8.6→15.9). Best fit: 3-and-D wing starter.`
@@ -239,18 +166,18 @@ const PLAYERS = {
   holmes: {
     name: 'Jake Holmes', num: 15, pos: 'PF/SF', yr: 'Fr', ht: '6-8',
     team: 'Canterbury Rams',
-    bpr: 1.5, adjBpr: 0.5, obpr: 0.8, dbpr: 0.7,
+    bpr: 1.5, obpr: 0.8, dbpr: 0.7,
     fromConf: 'nznbl',
-    prpgi: 1.0, ts: 58.2, usg: 19.4, threeRate: 0.50, threePct: 34.4,
+    ts: 58.2, usg: 19.4, threeRate: 0.50, threePct: 34.4,
     arate: 9.4, torate: 11.3, stl: 2.0, blk: 1.8, dreb: 18.2, oreb: 5.3,
     ftr: 38.8, htIn: 80, indDrtg: 99.0,
     note: `<strong>Incoming Freshman — Canterbury Rams (NZ NBL) 2025-26 · Fr · PF/SF · 6-8 · #15.</strong> Played 20 games at 22.3 mpg as a teenager against grown professionals in New Zealand's top league, going 16-4. That context matters more than the raw line: holding a real rotation role in a pro league at his age is a genuine development signal.<br><br><strong>Directly computed from box score:</strong> TS% 58.2% · eFG% 55.0% · 3PT% 34.4% on 21-61 · 2P% 58.3% (35-60) · FT% 68.1% · FTRate 38.8 · 3P rate 0.50 — a 6-8 forward taking half his shots from three and finishing at 58% inside.<br><br><strong>Profile:</strong> Efficient, low-mistake stretch four. TORate of 11.3% is excellent, and the 58.2 TS% on a 19.4 usage says he picks his spots well rather than forcing. Fills the Beath/Suutela archetype with more perimeter range than either.<br><br><strong style="color:var(--red)">Estimation caveat — read these numbers differently than the rest of the roster.</strong> NZ NBL does not publish possession data, so every rate stat here (USG, TORate, ARate, STL%, BLK%, OReb%, DReb%, and therefore indDrtg 99.0) is derived from per-game box scores using an assumed 74 possessions per 40 minutes. Rebounding rates in particular swing several points on that assumption — DReb% lands anywhere from 18.2 to 23.9 depending on pace. Conservative ends of each range were used. There is also no Barttorvik BPM for this league; the +1.5 raw BPM is an estimate from the box score, not a measured value.<br><br><strong>League strength:</strong> NZ NBL is set at −1.00 vs Big West — near-neutral, and the single softest number in this profile. Unlike the D1 conference values, which are measured from 365 teams of AdjEM data, there is no shared opponent pool to calibrate a foreign pro league against. Treat his adj BPM of +0.5 as a placeholder that should be revised the moment there are D1 minutes to look at.`
   },
   johnson: {
     name: 'Jordan Johnson', num: 3, pos: 'PG/SG', yr: 'Jr', ht: '6-3',
-    bpr: 0.5, adjBpr: 1.2, obpr: 0.8, dbpr: 0.4, indDrtg: 100.8,
+    bpr: 0.5, obpr: 0.8, dbpr: 0.4, indDrtg: 100.8,
     fromConf: 'juco',
-    prpgi: 1.8, ts: 55.0, usg: 20.0, threeRate: 0.38, threePct: 38.0,
+    ts: 55.0, usg: 20.0, threeRate: 0.38, threePct: 38.0,
     arate: 22.0, torate: 13.5, stl: 2.2, blk: 0.2, dreb: 14.0, oreb: 5.8,
     ftr: 32.0, htIn: 75,
     d2projection: true,
@@ -573,10 +500,10 @@ function renderLineup() {
     }
     if (row?.classList.contains('player-row')) {
       const p = PLAYERS[id];
-      const rating = getEffectiveBpr(p);
+      const rating = getEffectiveBpm(p);
       const bpm = row.querySelector('.p-bpr');
       bpm.textContent = (rating > 0 ? '+' : '') + rating;
-      bpm.title = 'Lineup score';
+      bpm.title = 'Lineup BPM';
       bpm.className = 'p-bpr ' + (rating >= 3 ? 'c-gold' : rating >= 0 ? 'c-muted' : 'c-red');
       row.querySelector('.p-ts').textContent = `TS% ${p.ts.toFixed(1)}`;
       row.className = inSlot
@@ -593,13 +520,13 @@ function renderLineup() {
     const id = lineup[i];
     if (id && PLAYERS[id]) {
       const p = PLAYERS[id];
-      const effBpr = getEffectiveBpr(p);
+      const effBpr = getEffectiveBpm(p);
       const bprColor = effBpr >= 3 ? 'var(--green)' : effBpr >= 1 ? 'var(--gold)' : effBpr >= 0 ? 'var(--muted)' : 'var(--red)';
       slot.className = 'slot filled';
       slot.innerHTML = `
         <div class="slot-pos">${SLOT_LABELS[i]}</div>
         <div class="slot-name">${htmlEscape(shortName(p))}</div>
-        <div class="slot-bpr" style="color:${bprColor}">Score ${effBpr > 0 ? '+' : ''}${effBpr}</div>
+        <div class="slot-bpr" style="color:${bprColor}">BPM ${effBpr > 0 ? '+' : ''}${effBpr}</div>
         <button class="slot-remove" onclick="removeFromSlot(${i})">✕</button>
       `;
     } else {
@@ -630,7 +557,7 @@ function updateRatings() {
   renderProjectionSource('standard', forecast);
   if (players.length === 0) { resetRatings(); return; }
 
-  const sumBPR = players.reduce((s, p) => s + getEffectiveBpr(p), 0);
+  const sumBPR = players.reduce((s, p) => s + getEffectiveBpm(p), 0);
   const avgTS  = players.reduce((s, p) => s + p.ts, 0) / players.length;
   const avgARate = players.reduce((s, p) => s + p.arate, 0) / players.length;
   const avgStl = players.reduce((s, p) => s + p.stl, 0) / players.length;
@@ -653,9 +580,8 @@ function updateRatings() {
   const usgStd  = Math.sqrt(usgVals.reduce((s,v)=>s+(v-usgMean)**2,0)/usgVals.length);
   const usgBalance = Math.max(0, 100 - usgStd * 8);
 
-  const bprEl = document.getElementById('rating-bpr');
-  bprEl.textContent = (sumBPR > 0 ? '+' : '') + sumBPR.toFixed(1);
-  bprEl.className = 'rating-val ' + (sumBPR >= 10 ? 'c-green' : sumBPR >= 3 ? 'c-gold' : sumBPR >= -2 ? 'c-muted' : 'c-red');
+  const startingScore = renderLineupScore('rating-bpr', 'starting-rapm', sumBPR,
+    players.map(player => [player, 1]), players.length, 'players');
   document.getElementById('rating-desc').textContent = players.length < 5 ? `${players.length}/5 players selected` : 'Sum of starting 5 scores';
 
   // ── ROTATION-WEIGHTED BPM ──────────────────────────────────────
@@ -687,30 +613,21 @@ function updateRatings() {
     let weightedSum = 0;
     Object.entries(playerMinMap).forEach(([pid, mins]) => {
       const p = PLAYERS[pid];
-      if (p && mins > 0) weightedSum += getEffectiveBpr(p) * mins;
+      if (p && mins > 0) weightedSum += getEffectiveBpm(p) * mins;
     });
     // Scale to per-5-player equivalent (multiply by 5, divide by total mins)
     rotationBPM = (weightedSum / totalMinAssigned) * 5;
   }
 
-  const rotEl  = document.getElementById('rating-rotation');
+  const rotationScore = renderLineupScore('rating-rotation', 'rotation-rapm', rotationBPM,
+    Object.entries(playerMinMap).map(([id, minutes]) => [PLAYERS[id], minutes]), 5, 'min');
   const rotDesc = document.getElementById('rating-rotation-desc');
-  if (rotEl) {
-    if (rotationBPM !== null) {
-      rotEl.textContent = (rotationBPM > 0 ? '+' : '') + rotationBPM.toFixed(1);
-      rotEl.className = 'rating-val ' + (rotationBPM >= 10 ? 'c-green' : rotationBPM >= 3 ? 'c-gold' : rotationBPM >= -2 ? 'c-muted' : 'c-red');
-      if (rotDesc) rotDesc.textContent = `${Object.keys(playerMinMap).length} players · ${totalMinAssigned} min assigned`;
-    } else {
-      rotEl.textContent = '—';
-      rotEl.className = 'rating-val c-muted';
-      if (rotDesc) rotDesc.textContent = 'Set minutes in planner below';
-    }
+  if (rotDesc) {
+    rotDesc.textContent = totalMinAssigned ? `Minutes-weighted · ${totalMinAssigned} min assigned` : 'Set minutes in planner below';
   }
 
-  // Use rotation BPM for tier if available, otherwise fall back to starting 5 sum
-  const tierBPM = rotationBPM !== null ? rotationBPM : sumBPR;
-
-
+  renderHistoricalTier('rating-tier', totalMinAssigned > 0 ? rotationScore : startingScore,
+    players.length, totalMinAssigned);
 
   // ── MINUTES-WEIGHTED PROJECTED STATS ─────────────────────────
   const { three: proj3Pct, threeRate: proj3PR, ftr: projFTR, turnover: projTORate,
@@ -803,23 +720,6 @@ function updateRatings() {
   const spaceEl = document.getElementById('rating-space');
   if (spaceEl) { spaceEl.textContent = spacingScore.toFixed(1); }
 
-  const tierEl  = document.getElementById('rating-tier');
-  const tierDesc = document.getElementById('rating-tier-desc');
-  const filled = lineup.filter(Boolean).length;
-  if (filled < 5) {
-    tierEl.textContent = '—'; tierEl.style.color = 'var(--muted)'; tierDesc.textContent = 'Need 5 players';
-  } else if (tierBPM >= 11) {
-    tierEl.textContent = 'BIG WEST TITLE'; tierEl.style.color = 'var(--gold)'; tierDesc.textContent = 'Title contender · UCI/Hawaii tier';
-  } else if (tierBPM >= 5) {
-    tierEl.textContent = 'TOP 4 BIG WEST'; tierEl.style.color = 'var(--green)'; tierDesc.textContent = 'NCAA bid-lock · above CSUN tier';
-  } else if (tierBPM >= 0) {
-    tierEl.textContent = 'MID-PACK'; tierEl.style.color = 'var(--blue-light)'; tierDesc.textContent = '7-11 conf wins projected';
-  } else if (tierBPM >= -4) {
-    tierEl.textContent = 'LOWER HALF'; tierEl.style.color = 'var(--yellow)'; tierDesc.textContent = 'Below .500 in conf projected';
-  } else {
-    tierEl.textContent = 'REBUILD'; tierEl.style.color = 'var(--muted)'; tierDesc.textContent = 'Significant gaps to address';
-  }
-
   setBar('ts', avgTS, 45, 65);
   setBar('3pt', spacingScore/5*100, 0, 100);
   setBar('usg', usgBalance, 0, 100);
@@ -838,7 +738,7 @@ function updateRatings() {
   document.getElementById('val-reb').textContent = avgDreb.toFixed(1) + '%';
   document.getElementById('val-ht').textContent = `${Math.floor(avgHt/12)}'${Math.round(avgHt%12)}"`;
 
-  generateFitAssessment(players, sumBPR, shooters, avgTS);
+  generateFitAssessment(players, shooters, avgTS);
 }
 
 function setBar(id, val, min, max) {
@@ -848,7 +748,10 @@ function setBar(id, val, min, max) {
 }
 
 function resetRatings() {
-  ['rating-bpr','rating-off','rating-space','rating-tier','rating-rotation'].forEach(id => {
+  renderLineupScore('rating-bpr', 'starting-rapm');
+  renderLineupScore('rating-rotation', 'rotation-rapm');
+  renderHistoricalTier('rating-tier', null, 0, 0);
+  ['rating-off','rating-space'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.textContent = '—'; el.className = 'rating-val c-muted'; }
   });
@@ -861,7 +764,6 @@ function resetRatings() {
   const rotDesc = document.getElementById('rating-rotation-desc');
   if (rotDesc) rotDesc.textContent = 'Minutes-weighted · full roster';
   document.getElementById('rating-off-desc').textContent = 'Proj. pts/100 poss';
-  document.getElementById('rating-tier-desc').textContent = 'Big West projection';
   document.getElementById('fit-assessment').innerHTML = 'Select players from the roster or load a preset lineup to generate a fit assessment.';
   ['ts','3pt','usg','ast','blk','stl','reb','ht'].forEach(id => {
     const b = document.getElementById('bar-' + id);
@@ -871,7 +773,7 @@ function resetRatings() {
   });
 }
 
-function generateFitAssessment(players, sumBPR, shooters, avgTS) {
+function generateFitAssessment(players, shooters, avgTS) {
   const hasDoublePG = players.some(p=>p.name.includes('Dotson')) && players.some(p=>p.name.includes('Beattie'));
   const hasSuutela  = players.some(p=>p.name.includes('Suutela'));
   const hasChaikin  = players.some(p=>p.name.includes('Chaikin'));
@@ -889,7 +791,6 @@ function generateFitAssessment(players, sumBPR, shooters, avgTS) {
   if (shooters <= 2) notes.push(`<strong>Spacing concern:</strong> Only ${shooters} reliable 3PT shooters. Big West defenses will pack the paint — consider rotating in Chaikin or Dotson.`);
   if (shooters >= 4) notes.push(`<strong>Elite spacing lineup</strong> — 4+ perimeter threats force impossible defensive decisions.`);
   if (hasSuutela && hasChaikin) notes.push(`<strong>Suutela + Chaikin</strong> is a high-efficiency combo — interior finishing at 63.7% TS% paired with 42.4% 3PT shooting. Minimal offensive overlap.`);
-  if (sumBPR >= 11) notes.push(`BPR sum of <strong>${sumBPR.toFixed(1)}</strong> projects as a title-contender lineup — UCI/Hawaii tier.`);
   if (notes.length === 0) notes.push(`Standard lineup. TS% average of ${avgTS.toFixed(1)}% is ${avgTS >= 57 ? 'above' : 'below'} Big West average for starting units.`);
 
   const el = document.getElementById('fit-assessment');
@@ -968,7 +869,7 @@ function totalColor(total) {
 }
 
 function bprColor(player) {
-  const b = getEffectiveBpr(player);
+  const b = getEffectiveBpm(player);
   return b >= 3 ? 'var(--green)' : b >= 1 ? 'var(--gold)' : b >= 0 ? 'var(--muted)' : 'var(--red)';
 }
 
@@ -994,7 +895,7 @@ function renderMinutesSummary() {
     const pct = Math.round((totalMin / 40) * 100);
     const minColor = totalMin >= 30 ? 'var(--green)' : totalMin >= 18 ? 'var(--gold)' : 'var(--muted)';
     const barPct = Math.min(100, (totalMin / 40) * 100);
-    const effBpr = getEffectiveBpr(p);
+    const effBpr = getEffectiveBpm(p);
     const bprC = effBpr >= 2 ? 'var(--green)' : effBpr >= 0 ? 'var(--gold)' : 'var(--red)';
     html += '<div style="background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:10px 12px;">'
       + '<div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">'
@@ -1072,7 +973,7 @@ function renderBench() {
       <div style="display:flex; align-items:center; gap:6px; margin-bottom:5px;">
         <div style="font-size:8px; letter-spacing:0.15em; text-transform:uppercase; color:var(--muted); width:42px; flex-shrink:0;">START</div>
         <div style="font-family:'Bebas Neue',sans-serif; font-size:14px; color:${bprColor(starter)}; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${starter.name.split(' ').pop()}</div>
-        <div style="font-size:9px; color:var(--muted);">${getEffectiveBpr(starter) > 0 ? '+' : ''}${getEffectiveBpr(starter)}</div>
+        <div style="font-size:9px; color:var(--muted);">${getEffectiveBpm(starter) > 0 ? '+' : ''}${getEffectiveBpm(starter)}</div>
       </div>
       <div style="display:flex; align-items:center; gap:6px;">
         <input type="range" class="minutes-slider" min="0" max="40" value="${starterMin}"
@@ -1089,7 +990,7 @@ function renderBench() {
       const spot   = spots[b];
       const player = spot.id ? PLAYERS[spot.id] : null;
       const bprC   = player ? bprColor(player) : 'var(--muted)';
-      const effBpr = player ? getEffectiveBpr(player) : 0;
+      const effBpr = player ? getEffectiveBpm(player) : 0;
 
       // Build options: all players, mark starters with ★
       const opts = `<option value="">— Bench ${b+1} —</option>` +
@@ -1100,7 +1001,7 @@ function renderBench() {
           if (usedElsewhere) return '';
           const bp      = PLAYERS[bid];
           const isStart = lineup.includes(bid);
-          const label   = (isStart ? '★ ' : '') + bp.name.split(' ').pop() + ` (${getEffectiveBpr(bp) > 0 ? '+' : ''}${getEffectiveBpr(bp)})`;
+          const label   = (isStart ? '★ ' : '') + bp.name.split(' ').pop() + ` (${getEffectiveBpm(bp) > 0 ? '+' : ''}${getEffectiveBpm(bp)})`;
           return `<option value="${bid}" ${spot.id === bid ? 'selected' : ''}>${htmlEscape(label)}</option>`;
         }).join('');
 
@@ -1157,7 +1058,7 @@ function renderBench() {
       const pct = Math.round((totalMin / 40) * 100); // % of a full game
       const minColor = totalMin >= 30 ? 'var(--green)' : totalMin >= 18 ? 'var(--gold)' : 'var(--muted)';
       const barPct = Math.min(100, (totalMin / 40) * 100);
-      const effBpr = getEffectiveBpr(p);
+      const effBpr = getEffectiveBpm(p);
       const bprC = effBpr >= 2 ? 'var(--green)' : effBpr >= 0 ? 'var(--gold)' : 'var(--red)';
 
       html += `
@@ -1297,9 +1198,15 @@ function refreshPositionTotal(slotIdx) {
 function openDrawer(id) {
   const p = PLAYERS[id];
   if (!p) return;
+  const drawer = document.getElementById('drawer');
+  drawer.dataset.playerId = id;
+  const bpm = lineupBpm(p);
+  const currentRapm = currentImpact(p)?.rapm;
+  const priorRapm = PRIOR_IMPACT[id]?.rapm;
   document.getElementById('drawer-tag').textContent = `#${p.num} · ${p.pos} · ${p.yr} · ${p.ht}`;
   document.getElementById('drawer-name').textContent = p.name;
-  document.getElementById('drawer-sub').textContent = `BPR ${p.bpr>0?'+':''}${p.bpr} · TS% ${p.ts} · USG% ${p.usg}`;
+  document.getElementById('drawer-sub').textContent =
+    `BPM ${formatImpact(bpm.value)} · RAPM ${formatImpact(lineupRapm(p))} · TS% ${p.ts} · USG% ${p.usg}`;
   (function(){
     const el = document.getElementById('drawer-teamctx');
     if (!el) return;
@@ -1318,14 +1225,13 @@ function openDrawer(id) {
       + '<span style="color:var(--muted);">vs UCSD ' + (vsU>=0?'+':'') + vsU.toFixed(2) + '</span>'
       + '</div>';
   })();
-  const adjustedBpm = (p.adjBpr ?? p.bpr).toFixed(1);
-  const lineupScore = getEffectiveBpr(p);
-  const rawPrpg = Number.isFinite(p.prpgi) ? `${p.prpgi > 0 ? '+' : ''}${p.prpgi.toFixed(1)}` : '—';
   document.getElementById('drawer-stats').innerHTML = `
-    <div class="ds-cell"><div class="ds-label">Raw BPM</div><div class="ds-val">${p.bpr > 0 ? '+' : ''}${p.bpr.toFixed(1)}</div></div>
-    <div class="ds-cell"><div class="ds-label">Big West BPM</div><div class="ds-val">${adjustedBpm > 0 ? '+' : ''}${adjustedBpm}</div></div>
-    <div class="ds-cell"><div class="ds-label">PRPG!</div><div class="ds-val">${rawPrpg}</div></div>
-    <div class="ds-cell"><div class="ds-label">Lineup Score</div><div class="ds-val">${lineupScore > 0 ? '+' : ''}${lineupScore.toFixed(1)}</div></div>
+    <div class="ds-cell"><div class="ds-label">2025–26 BPM</div><div class="ds-val">${formatImpact(bpm.prior)}</div></div>
+    <div class="ds-cell"><div class="ds-label">2026–27 BPM</div><div class="ds-val">${formatImpact(bpm.current)}</div></div>
+    <div class="ds-cell"><div class="ds-label">Blended BPM</div><div class="ds-val">${formatImpact(bpm.value)}</div></div>
+    <div class="ds-cell"><div class="ds-label">2025–26 RAPM</div><div class="ds-val">${formatImpact(priorRapm)}</div></div>
+    <div class="ds-cell"><div class="ds-label">2026–27 RAPM</div><div class="ds-val">${formatImpact(currentRapm)}</div></div>
+    <div class="ds-cell"><div class="ds-label">Blended RAPM</div><div class="ds-val">${formatImpact(lineupRapm(p))}</div></div>
     <div class="ds-cell"><div class="ds-label">TS%</div><div class="ds-val" style="color:${p.ts>=58?'var(--green)':p.ts>=54?'var(--gold)':'var(--muted)'}">${p.ts}</div></div>
     <div class="ds-cell"><div class="ds-label">USG%</div><div class="ds-val">${p.usg}</div></div>
     <div class="ds-cell"><div class="ds-label">A-Rate</div><div class="ds-val">${p.arate}%</div></div>
@@ -1335,7 +1241,7 @@ function openDrawer(id) {
   `;
   renderPlayerForecast(id);
   document.getElementById('drawer-note').innerHTML = p.note;
-  document.getElementById('drawer').classList.add('open');
+  drawer.classList.add('open');
 }
 
 function closeDrawer() {
@@ -1565,75 +1471,6 @@ function renderStandingsTable() {
 
   el.innerHTML = html;
 }
-
-function renderUCSDComparisonBars() {
-  const el = document.getElementById('ucsd-comparison-bars');
-  if (!el) return;
-
-  // Historical comparison teams are on the BPM scale.
-  const ucsdPlayers = lineup.filter(Boolean).map(id => PLAYERS[id]).filter(Boolean);
-  const ucsdStartSum = ucsdPlayers.reduce((s, p) => s + getEffectiveBpr(p, 0), 0);
-
-  // Use rotation-weighted BPM if minutes are assigned, else starting 5 sum
-  const playerMinMap2 = getAllPlayersWithMinutes();
-  const totalMin2 = Object.values(playerMinMap2).reduce((a, b) => a + b, 0);
-  let ucsdSum = ucsdStartSum;
-  if (totalMin2 > 0) {
-    let ws = 0;
-    Object.entries(playerMinMap2).forEach(([pid, mins]) => {
-      const p = PLAYERS[pid];
-      if (p && mins > 0) ws += getEffectiveBpr(p, 0) * mins;
-    });
-    ucsdSum = (ws / totalMin2) * 5;
-  }
-
-  const teams = [
-    { label: 'UCI · 1st Reg. Season',     sum: 12.6, rec: '15-5',  color: 'var(--blue-light)' },
-    { label: 'Hawaii · Conf. Champions',  sum: 11.1, rec: '14-6',  color: 'var(--green)' },
-    { label: 'UCSD — Active Lineup',       sum: ucsdSum, rec: lineup.filter(Boolean).length + '/5', color: 'var(--gold)', highlight: true },
-    { label: 'CSUN · Beat UCSD 3x',       sum: 4.9,  rec: '12-8',  color: 'var(--red)' },
-  ].sort((a, b) => b.sum - a.sum);
-
-  const absMax = 15, absMin = -6, range = absMax - absMin;
-  let html = teams.map(t => {
-    const pct = Math.max(2, Math.min(98, ((t.sum - absMin) / range) * 100));
-    const sign = t.sum > 0 ? '+' : '';
-    const bold = t.highlight ? 'font-weight:500;' : '';
-    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">
-      <div style="width:190px;font-size:10px;color:${t.highlight ? 'var(--gold)' : 'var(--muted)'};flex-shrink:0;${bold}">${t.label}</div>
-      <div style="font-size:9px;color:var(--muted);width:34px;flex-shrink:0;text-align:right;">${t.rec}</div>
-      <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:${t.color};border-radius:3px;transition:width 0.5s ease;"></div>
-      </div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${t.color};width:44px;text-align:right;">${sign}${t.sum.toFixed(1)}</div>
-    </div>`;
-  }).join('');
-
-  // Dynamic scouting note
-  const filled = lineup.filter(Boolean).length;
-  let note = '';
-  if (filled < 5) {
-    note = `<span style="color:var(--muted)">Fill all 5 slots to see full comparison.</span>`;
-  } else {
-    const gapUCI     = (13.6 - ucsdSum).toFixed(1);
-    const gapHawaii  = (11.1 - ucsdSum).toFixed(1);
-    const aheadCSUN  = (ucsdSum - 4.9).toFixed(1);
-    if (ucsdSum >= 11) {
-      note = `<span style="color:var(--green)">This lineup is competitive with the Big West's top teams. On paper a title contender.</span>`;
-    } else if (ucsdSum >= 5) {
-      note = `Projected top-4 Big West — above CSUN tier. Gap to Hawaii: <span style="color:var(--yellow)">−${gapHawaii}</span> · Gap to UCI: <span style="color:var(--yellow)">−${gapUCI}</span>. A +4 BPM portal addition gets you into title range.`;
-    } else if (ucsdSum >= 0) {
-      note = `<span style="color:var(--yellow)">Mid-pack Big West on current numbers</span> — roughly 8-10 conf wins range. Gap to Hawaii: −${gapHawaii}. Ahead of CSUN by +${aheadCSUN}. Portal addition is the difference between top-4 and mid-table.`;
-    } else {
-      note = `<span style="color:var(--yellow)">Below CSUN tier on current Barttorvik numbers</span> — but context matters. BPM undervalues defensive specialists, role players, and mid-major efficiency. UCSD's actual +4.30 NetRtg last season was 3rd in conference with similar raw BPM. Portal target at +3–5 BPM would project a top-4 finish.`;
-    }
-  }
-  html += `<div style="font-size:11px;font-family:'Crimson Pro',serif;font-style:italic;color:var(--muted);padding-top:10px;border-top:1px solid var(--border);margin-top:4px;line-height:1.6;">${note}</div>`;
-
-  el.innerHTML = html;
-}
-
-
 
 // ─── SAVED LINEUPS ─────────────────────────────────────────────
 const STORAGE_KEY = 'ucsd_saved_lineups_v1';
@@ -2167,9 +2004,11 @@ function nmUpdateStats() {
   const forecast = rotationForecast(minMap);
   renderProjectionSource('nineman', forecast);
   if (!forecast.minutes) {
+    renderLineupScore('nm-bpm', 'nineman-rapm');
+    document.getElementById('nm-bpm-desc').textContent = 'Add players to calculate';
     ['nm-ortg','nm-drtg','nm-efg','nm-3pct','nm-3pr','nm-ftr',
      'nm-arate','nm-torate','nm-dreb','nm-oreb','nm-net',
-     'nm-bpm','nm-ortg-top'].forEach(id => {
+     'nm-ortg-top'].forEach(id => {
       const el = document.getElementById(id);
       if (el) { el.textContent = '—'; el.className = 'rating-val c-muted'; }
     });
@@ -2177,10 +2016,7 @@ function nmUpdateStats() {
       const range = document.getElementById(id);
       if (range) range.textContent = '';
     }
-    const nmTierEl = document.getElementById('nm-tier');
-    if (nmTierEl) { nmTierEl.textContent = '—'; nmTierEl.className = 'rating-val'; }
-    const nmTierDesc = document.getElementById('nm-tier-desc');
-    if (nmTierDesc) nmTierDesc.textContent = 'Big West projection';
+    renderHistoricalTier('nm-tier', null, filled.length, 0);
     const nmSumEl = document.getElementById('nm-minutes-summary');
     if (nmSumEl) nmSumEl.innerHTML = '';
     return;
@@ -2242,15 +2078,11 @@ function nmUpdateStats() {
   nmRenderMinutesSummary(filled, totalMins);
 
   // ── BPM + TIER ─────────────────────────────────────────────
-  const sumRotBPM = filled.reduce((sum, { p }) => sum + getEffectiveBpr(p), 0);
-
-  const bpmEl  = document.getElementById('nm-bpm');
+  const rotationBPM = 5 * filled.reduce((sum, { p, m }) => sum + getEffectiveBpm(p) * m, 0) / totalMins;
+  const rotationScore = renderLineupScore('nm-bpm', 'nineman-rapm', rotationBPM, filled.map(({ p, m }) => [p, m]), 5, 'min');
+  renderHistoricalTier('nm-tier', rotationScore, filled.length, totalMins);
   const bpmDesc = document.getElementById('nm-bpm-desc');
-  if (bpmEl) {
-    bpmEl.textContent = (sumRotBPM >= 0 ? '+' : '') + sumRotBPM.toFixed(1);
-    bpmEl.className = 'rating-val ' + (sumRotBPM >= 6 ? 'c-green' : sumRotBPM >= 3 ? 'c-gold' : sumRotBPM >= 0 ? 'c-muted' : 'c-red');
-    if (bpmDesc) bpmDesc.textContent = filled.length + ' players · ' + totalMins + ' min';
-  }
+  if (bpmDesc) bpmDesc.textContent = `Minutes-weighted · ${totalMins} min assigned`;
 
   // Net Rtg in top row
   const ortgTopEl    = document.getElementById('nm-ortg-top');
@@ -2261,24 +2093,7 @@ function nmUpdateStats() {
     if (ortgTopRange) ortgTopRange.textContent = 'Off ' + projORtg.toFixed(1) + ' · Def ' + projDRtg.toFixed(1);
   }
 
-  // Tier — same thresholds as main panel
-  const tierEl   = document.getElementById('nm-tier');
-  const tierDesc = document.getElementById('nm-tier-desc');
-  if (tierEl) {
-    const tiers = [
-      { min: 10,  label: 'ELITE',          desc: 'Big West title contender',       color: 'var(--green)'  },
-      { min: 7,   label: 'TOP 3 BIG WEST', desc: 'NCAA bid-lock · elite BW tier',  color: 'var(--green)'  },
-      { min: 4,   label: 'TOP 4 BIG WEST', desc: 'NCAA bid-lock · above CSUN tier',color: 'var(--green)'  },
-      { min: 1.5, label: 'TOP HALF',       desc: 'Bubble territory · competitive',  color: 'var(--gold)'   },
-      { min: -1,  label: 'MID-TIER',       desc: 'Bottom half · needs improvement', color: 'var(--muted)'  },
-      { min: -99, label: 'REBUILDING',     desc: 'Below avg BW team',              color: 'var(--red)'    },
-    ];
-    const tier = tiers.find(t => sumRotBPM >= t.min) || tiers[tiers.length-1];
-    tierEl.textContent = tier.label;
-    tierEl.style.color = tier.color;
-    tierEl.className = 'rating-val';
-    if (tierDesc) tierDesc.textContent = tier.desc;
-  }
+
 }
 
 function nmRenderMinutesSummary(filled, totalMins) {
@@ -2290,7 +2105,7 @@ function nmRenderMinutesSummary(filled, totalMins) {
     const p = x.p;
     const pct  = Math.round((x.m / 200) * 100);
     const barW = Math.round((x.m / 40) * 100);
-    const eff = getEffectiveBpr(p);
+    const eff = getEffectiveBpm(p);
     const bpmColor = eff >= 2 ? 'var(--green)' : eff >= 0 ? 'var(--gold)' : eff >= -1.5 ? 'var(--muted)' : 'var(--red)';
     const lastName = p.name.split(' ').pop();
     const sign = eff >= 0 ? '+' : '';
@@ -2327,38 +2142,6 @@ function switchTab(tab) {
   if (tab === 'nineman') { nmRender(); nmUpdateStats(); }
   if (tab === 'season') { renderSeason(); renderGames(); }
   if (tab === 'portal') renderPortal();
-}
-
-function normalizeConferenceKey(conf) {
-  const key = String(conf || "bw").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const aliases = {
-    bigwest: "bw",
-    big10: "b10",
-    bigten: "b10",
-    big12: "b12",
-    bigtwelve: "b12",
-    bigeast: "be",
-    americaeast: "ae",
-    asun: "asun",
-    atlantic10: "a10",
-    horizon: "horz",
-    summit: "sum",
-    sunbelt: "sb",
-    southern: "sc",
-    southland: "slnd",
-    patriot: "pat",
-    nznbl: "other",
-    juco: "other",
-    d2: "other",
-  };
-  return aliases[key] || key || "bw";
-}
-
-function portalConfAdj(rawBpr, theirConf) {
-  const key = normalizeConferenceKey(theirConf);
-  const bw = toFiniteNumber(portalConferenceStrength.bw, 0);
-  const delta = toFiniteNumber(portalConferenceStrength[key], bw) - bw;
-  return +(toFiniteNumber(rawBpr, 0) + delta * 0.20).toFixed(1);
 }
 
 function toFiniteNumber(value, fallback = 0) {
@@ -2403,10 +2186,8 @@ function normalizeWatchlistCandidate(candidate) {
     ht: String(candidate.ht || '—'),
     htIn: toFiniteNumber(candidate.htIn, 0),
     bpr: toFiniteNumber(candidate.bpr, 0),
-    adjBpr: toFiniteNumber(candidate.adjBpr ?? candidate.bpr, toFiniteNumber(candidate.bpr, 0)),
     obpr: toFiniteNumber(candidate.obpr, 0),
     dbpr: toFiniteNumber(candidate.dbpr, 0),
-    prpgi: toFiniteNumber(candidate.prpgi, 0),
     ts: toFiniteNumber(candidate.ts, 0),
     usg: toFiniteNumber(candidate.usg, 0),
     threeRate: toFiniteNumber(candidate.threeRate, 0),
@@ -2506,7 +2287,6 @@ function syncWatchlistPotentialsFromParent() {
 
 let WATCHLIST_POTENTIALS = [];
 let PORTAL_PLAYERS = [];
-let portalConferenceStrength = {};
 let portalStatus = 'Loading transfer portal…';
 let selectedPortalId = null;
 
@@ -2555,18 +2335,15 @@ async function loadTransferPortal() {
     const response = await fetch('ucsd_model_data.json');
     if (!response.ok) throw new Error('HTTP ' + response.status);
     const data = await response.json();
-    portalConferenceStrength = data.confStrength || {};
     PORTAL_PLAYERS = data.portal.filter(player => /^[\w-]+$/.test(player.id)).map(player => {
       const conf = player.fromConf || '';
       const bpr = toFiniteNumber(player.bpr);
-      const adjBpr = portalConfAdj(bpr, conf);
       return {
         ...player,
         id: 'portal_candidate_' + player.id,
         team: player.priorSchool || '',
         conf,
-        confAdj: Number((adjBpr - bpr).toFixed(1)),
-        adjBpr,
+        bpr,
         _portalPlayer: true,
         note: candidateNote(player) + '<br>' + htmlEscape(player.note || ''),
       };
@@ -2652,19 +2429,25 @@ function renderPortal() {
   const search  = (document.getElementById('portal-search')?.value || '').toLowerCase();
   const conf    = document.getElementById('portal-conf')?.value || '';
   const yr      = document.getElementById('portal-yr')?.value || '';
-  const sortKey = document.getElementById('portal-sort')?.value || 'adjBpr';
+  const sortKey = document.getElementById('portal-sort')?.value || 'bpm';
   const minBpm  = parseFloat(document.getElementById('portal-min-bpm')?.value ?? -99);
 
   const filtered = PORTAL_PLAYERS.filter(p => {
     if (conf && p.conf !== conf) return false;
     if (yr   && p.yr   !== yr)   return false;
-    if (p.adjBpr < minBpm)       return false;
+    if (getEffectiveBpm(p) < minBpm) return false;
     if (search && !p.name.toLowerCase().includes(search) && !p.team.toLowerCase().includes(search)) return false;
     return true;
   });
 
-  const desc = sortKey === 'indDrtg';
-  filtered.sort((a, b) => desc ? a[sortKey] - b[sortKey] : b[sortKey] - a[sortKey]);
+  const sortValue = player => {
+    let value = player[sortKey];
+    if (sortKey === 'bpm') value = getEffectiveBpm(player);
+    if (sortKey === 'rapm') value = lineupRapm(player);
+    if (!Number.isFinite(value)) return -Infinity;
+    return sortKey === 'indDrtg' ? -value : value;
+  };
+  filtered.sort((a, b) => (sortValue(b) - sortValue(a)) || a.name.localeCompare(b.name));
 
   const countEl = document.getElementById('portal-count');
   if (countEl) countEl.textContent = portalStatus || filtered.length + ' players';
@@ -2673,17 +2456,16 @@ function renderPortal() {
   if (!list) return;
 
   list.innerHTML = filtered.map(p => {
-    const bpmColor = p.adjBpr >= 3 ? 'var(--green)' : p.adjBpr >= 0 ? 'var(--gold)' : 'var(--muted)';
+    const bpm = getEffectiveBpm(p);
+    const bpmColor = bpm >= 3 ? 'var(--green)' : bpm >= 0 ? 'var(--gold)' : 'var(--muted)';
     const drtgColor = p.indDrtg <= 101 ? 'var(--green)' : p.indDrtg <= 104 ? 'var(--gold)' : 'var(--muted)';
-    const sign = p.adjBpr >= 0 ? '+' : '';
     return '<div class="portal-row" draggable="true"'
       + ` data-id="${p.id}" ondragstart="dragStart(event, '${p.id}')" ondragend="dragEnd(event)">`
 
       + '<div class="portal-name">' + htmlEscape(p.name) + '</div>'
       + '<div class="portal-team">' + htmlEscape(p.team) + '<br><span style="color:var(--muted);font-size:8px;">' + htmlEscape(p.conf) + ' · ' + htmlEscape(p.yr) + ' · ' + htmlEscape(p.ht) + '</span></div>'
-      + '<div class="portal-tag">' + htmlEscape(p.conf) + (p.confAdj >= 0 ? ' +' : ' ') + p.confAdj + '</div>'
-      + '<div style="width:70px;font-size:18px;color:' + bpmColor + ';text-align:right;flex-shrink:0">' + sign + p.adjBpr.toFixed(1) + '<div style="font-size:7px;color:var(--muted)">BPM</div></div>'
-      + '<div style="width:52px;font-size:10px;color:var(--gold);text-align:right;flex-shrink:0;">' + p.prpgi.toFixed(1) + '<div style="font-size:7px;color:var(--muted);">PRPG!</div></div>'
+      + '<div style="width:70px;font-size:18px;color:' + bpmColor + ';text-align:right;flex-shrink:0">' + formatImpact(bpm) + '<div style="font-size:7px;color:var(--muted)">BPM</div></div>'
+      + '<div style="width:52px;font-size:10px;color:var(--gold);text-align:right;flex-shrink:0;">' + formatImpact(lineupRapm(p)) + '<div style="font-size:7px;color:var(--muted);">RAPM</div></div>'
       + '<div style="width:48px;font-size:10px;text-align:right;flex-shrink:0;">' + p.ts.toFixed(1) + '%<div style="font-size:7px;color:var(--muted);">TS%</div></div>'
       + '<div style="width:48px;font-size:10px;text-align:right;flex-shrink:0;">' + p.threePct.toFixed(1) + '%<div style="font-size:7px;color:var(--muted);">3PT%</div></div>'
       + '<div style="width:48px;font-size:10px;color:' + drtgColor + ';text-align:right;flex-shrink:0;">' + p.indDrtg.toFixed(1) + '<div style="font-size:7px;color:var(--muted);">DRtg</div></div>'
@@ -2698,11 +2480,302 @@ function renderPortal() {
 // k is per-stat: it is roughly the number of games at which that stat
 // carries as much signal as the prior. Shooting stabilizes slowly, usage fast.
 const PRIOR = JSON.parse(JSON.stringify(PLAYERS));
+const ROSTER_IDS = new Map(Object.entries(PLAYERS).map(([id, player]) => [player, id]));
+// 2025–26 daily-model backfill through 2026-04-06, matched by name and prior school.
+// See ratings/README.md. Players without a verified season row are omitted.
+const PRIOR_IMPACT = {
+  beath:       { bpm: -0.105, rapm:  1.702 },
+  beattie:     { bpm:  1.963, rapm:  1.078 },
+  chaikin:     { bpm: -0.632, rapm: -0.157 },
+  burke:       { bpm: -0.443, rapm:  0.677 },
+  vance:       { bpm:  0.040, rapm:  0.532 },
+  vukicevic:   { bpm: -0.701, rapm: -0.922 },
+  pendleton:   { bpm: -2.039, rapm: -0.470 },
+  dotson:      { bpm: -1.085, rapm: -0.859 },
+  suutela:     { bpm: -1.996, rapm: -0.087 },
+  barno:       { bpm: -2.261, rapm: -0.354 },
+  eaglestaff:  { bpm:  2.246, rapm:  3.671 },
+};
+// Final rotation ratings for 2021–22 through 2025–26, grouped by league and season.
+// Rows are [conference finish, BPM, RAPM]. WCC finishes and league sizes
+// exclude Gonzaga. Both league counts include teams below 90% RAPM coverage.
+// See ratings-analysis/rotation-tier-backtest.json for the team-level audit.
+const HISTORICAL_ROTATIONS = {
+  'big-west': [
+    { teamCount: 10, ratings: [[1,-0.081315,3.496749],[2,1.816702,3.195671],[3,0.528666,2.146688],[4,3.771964,2.601573],[5,3.878288,6.138754],[6,-0.696814,2.593789],[7,-3.313873,0.05054],[8,-15.142244,-9.769734],[9,-7.947109,-4.932672],[9,-11.835739,-6.682119]] }, // 2021–22
+    { teamCount: 11, ratings: [[1,5.901154,2.174543],[1,5.096422,5.17739],[3,1.427708,3.00106],[4,3.222661,2.169518],[5,3.159861,4.432486],[6,0.584919,0.275584],[7,-0.805899,0.458075],[9,-8.192367,-5.212676],[10,-13.271085,-9.840946],[11,-10.446883,-7.79313]] }, // 2022–23
+    { teamCount: 11, ratings: [[1,10.113674,8.761006],[2,4.299371,4.430916],[3,-0.319113,2.177821],[4,0.021422,1.750914],[5,-0.077597,2.419556],[5,-4.324756,-1.045427],[7,-2.559266,-1.372395],[7,-4.259146,-2.21616],[9,-5.529986,-1.932541],[11,-16.33702,-11.546549]] }, // 2023–24
+    { teamCount: 11, ratings: [[1,18.213988,16.906288],[2,11.355542,9.665129],[3,-0.42644,-0.637341],[3,3.761302,3.283554],[5,1.65131,0.397243],[6,-5.250232,-2.587123],[7,-1.572971,-1.374343],[9,-5.087779,-3.885812],[10,-13.086784,-10.028036],[11,-19.852315,-17.816039]] }, // 2024–25
+    { teamCount: 11, ratings: [[1,4.66228,7.052589],[2,5.480726,6.277906],[3,-1.957954,-0.465089],[3,-2.144095,0.230913],[3,3.133031,3.2484],[6,-1.261485,0.076333],[6,1.849833,2.064492],[8,-4.508021,-1.127444],[9,-7.103483,-3.26991],[10,-9.023953,-6.342287],[11,-15.725966,-11.044888]] }, // 2025–26
+  ],
+  'wcc': [
+    { teamCount: 9, ratings: [[1,17.522343,15.092989],[2,9.552983,7.843966],[3,16.028364,13.150477],[4,10.068506,6.693785],[5,-1.042052,1.080203],[6,-4.852043,-4.724969],[7,-10.701191,-8.953432],[8,-4.107914,-4.314644],[9,-9.983825,-9.244769]] }, // 2021–22
+    { teamCount: 9, ratings: [[1,19.623564,9.646135],[2,7.019439,5.809741],[3,3.26666,-0.155034],[4,4.788726,1.137664],[4,8.518718,6.065579]] }, // 2022–23
+    { teamCount: 8, ratings: [[1,20.253359,13.212206],[2,11.799951,9.099144],[3,5.648218,3.393506],[4,-6.190306,-8.262104],[5,-2.3742,-1.800413]] }, // 2023–24
+    { teamCount: 10, ratings: [[1,19.179566,16.08924],[2,10.381659,7.515571],[3,14.310899,12.927013],[4,8.749447,6.577667],[5,3.05456,0.559681],[5,-1.568886,-0.775456],[7,-12.269676,-8.054752],[8,-10.128721,-9.421543],[10,-12.433851,-8.692728]] }, // 2024–25
+    { teamCount: 11, ratings: [[1,19.967021,17.647974],[2,17.333427,13.293041],[3,-2.13561,-0.684608],[4,2.831613,1.984466],[4,3.849911,3.441618],[4,3.944126,2.673576],[7,1.296657,-0.60736],[8,-5.630352,-4.176364],[8,-0.301991,0.099808],[10,-6.709205,-4.97456],[11,-9.750565,-7.776546]] }, // 2025–26
+  ],
+};
+const RATING_WEIGHTS = {
+  'metric-weight': { key: 'ucsd_rating_metric_weight_2627', from: 'BPM', to: 'RAPM' },
+  'season-weight': { key: 'ucsd_rating_season_weight_2627', from: '2025–26', to: '2026–27' },
+};
+const RATINGS_CSV = 'https://raw.githubusercontent.com/Siddhu-S/ncaa-player-dashboard/ratings-data/player-ratings.csv';
+let ratingMetricWeight = 0;
+let ratingSeasonWeight = 0.25;
+let liveRatings = new Map();
+
+function ratingNameKey(name) {
+  const parts = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z0-9]+/g) || [];
+  if (/^(jr|sr|ii|iii|iv|v)$/.test(parts.at(-1))) parts.pop();
+  return parts.join('');
+}
+
+function ratingKey(name, team) {
+  const school = team.toLowerCase().replace(/\bst\.?($|\s)/g, 'state$1').replace(/[^a-z0-9]/g, '');
+  return (school === 'ucsd' ? 'ucsandiego' : school) + ':' + ratingNameKey(name);
+}
+
+function readLiveRatings(csv) {
+  // Split on commas outside quoted fields; the publisher's player and school
+  // names are single-line fields and may contain commas or escaped quotes.
+  const rows = csv.replace(/^\uFEFF/, '').trim().split(/\r?\n/).map(line =>
+    line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(value => value.replace(/^"|"$/g, '').replaceAll('""', '"'))
+  );
+  const cols = Object.fromEntries(rows.shift().map((name, i) => [name, i]));
+  if (!['season', 'player_name', 'team', 'bpm', 'rapm', 'bpm_through_date', 'rapm_through_date']
+    .every(col => Object.hasOwn(cols, col))) throw new Error('Invalid daily ratings CSV');
+
+  const ratings = new Map(), cutoffs = { bpm: '', rapm: '' };
+  for (const row of rows) {
+    if (row[cols.season] !== '2027' || !row[cols.player_name] || !row[cols.team]) continue;
+    const record = {};
+    for (const metric of ['bpm', 'rapm']) {
+      const value = row[cols[metric]]?.trim();
+      if (!value || !Number.isFinite(Number(value))) continue;
+      record[metric] = Number(value);
+      const cutoff = row[cols[metric + '_through_date']];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cutoff) && cutoff > cutoffs[metric]) cutoffs[metric] = cutoff;
+    }
+    const key = ratingKey(row[cols.player_name], row[cols.team]);
+    // A normalized name must identify a single player at this school.
+    ratings.set(key, ratings.has(key) ? null : record);
+  }
+  if (!Array.from(ratings.values()).some(row => Number.isFinite(row?.bpm) || Number.isFinite(row?.rapm))) {
+    throw new Error('No 2026–27 ratings');
+  }
+  return { ratings, cutoffs };
+}
+
+function currentImpact(player) {
+  // The roster's team field can still be their previous school.
+  const team = ROSTER_IDS.has(player) ? 'UC San Diego' : player.team;
+  return team ? liveRatings.get(ratingKey(player.name, team)) : null;
+}
+
+function blendImpact(prior, current) {
+  if (!Number.isFinite(prior)) return Number.isFinite(current) ? current : null;
+  if (!Number.isFinite(current)) return prior;
+  return prior + (current - prior) * ratingSeasonWeight;
+}
+
+function lineupBpm(player) {
+  const id = ROSTER_IDS.get(player);
+  const base = PRIOR[id] ?? player;
+  const prior = id ? PRIOR_IMPACT[id]?.bpm : player.bpr;
+  const manual = SEASON[id]?.bpr;
+  const current = Number.isFinite(manual) ? manual : currentImpact(player)?.bpm;
+  return { value: blendImpact(prior, current) ?? base.bpr, current, prior };
+}
+
+function lineupRapm(player) {
+  return blendImpact(PRIOR_IMPACT[ROSTER_IDS.get(player)]?.rapm, currentImpact(player)?.rapm);
+}
+
+function formatImpact(value, digits = 1) {
+  return Number.isFinite(value) ? (value >= 0 ? '+' : '') + value.toFixed(digits) : '—';
+}
+
+function mixImpact(bpm, rapm) {
+  if (ratingMetricWeight === 0) return bpm;
+  if (ratingMetricWeight === 1) return rapm;
+  if (!Number.isFinite(bpm) || !Number.isFinite(rapm)) return null;
+  return (1 - ratingMetricWeight) * bpm + ratingMetricWeight * rapm;
+}
+
+const HISTORICAL_TIER_RANK = {
+  champion: () => 1,
+  topThree: () => 3,
+  topFour: () => 4,
+  topHalf: teamCount => Math.ceil(teamCount / 2),
+  aboveBottomQuarter: teamCount => teamCount - Math.ceil(teamCount / 4),
+};
+
+function seasonalTierCutoffs({ teamCount, ratings }) {
+  const scoresByRank = new Map();
+  for (const [rank, bpm, rapm] of ratings) {
+    const record = scoresByRank.get(rank) ?? { sum: 0, count: 0 };
+    record.sum += mixImpact(bpm, rapm);
+    record.count++;
+    scoresByRank.set(rank, record);
+  }
+  const places = [...scoresByRank.keys()].sort((a, b) => a - b);
+  const averageAt = rank => {
+    const { sum, count } = scoresByRank.get(rank);
+    return sum / count;
+  };
+  const cutoffs = Object.values(HISTORICAL_TIER_RANK).map(rankFor => {
+    const firstOutside = places.findIndex(place => place > rankFor(teamCount));
+    // Tied teams share a rank. Use the nearest rated finish on each side.
+    // If no team outside the boundary has a rating, use the inside edge.
+    if (firstOutside < 0) return averageAt(places.at(-1));
+    return (averageAt(places[firstOutside - 1]) + averageAt(places[firstOutside])) / 2;
+  });
+
+  // Ratings don't always follow standings order. If neighboring benchmarks
+  // cross, average them for that season so a higher tier can't be easier.
+  const blocks = [];
+  for (const cutoff of cutoffs) {
+    blocks.push({ sum: cutoff, count: 1 });
+    while (blocks.length > 1) {
+      const higher = blocks.at(-2), lower = blocks.at(-1);
+      if (higher.sum / higher.count >= lower.sum / lower.count) break;
+      higher.sum += lower.sum;
+      higher.count += lower.count;
+      blocks.pop();
+    }
+  }
+  return blocks.flatMap(({ sum, count }) => Array(count).fill(sum / count));
+}
+
+function historicalTierCutoffs(groups) {
+  const seasonCutoffs = HISTORICAL_ROTATIONS[forecastConference].map(seasonalTierCutoffs);
+  const order = Object.keys(HISTORICAL_TIER_RANK);
+  return groups.map(group => {
+    const index = order.indexOf(group);
+    return seasonCutoffs.reduce((sum, cutoffs) => sum + cutoffs[index], 0) / seasonCutoffs.length;
+  });
+}
+
+function renderHistoricalTier(id, score, playerCount, minutes) {
+  const tier = document.getElementById(id);
+  const detail = document.getElementById(id + '-desc');
+  const conference = forecastConference === 'wcc' ? 'WCC' : 'BIG WEST';
+  const fiveMan = id === 'rating-tier';
+  const bands = fiveMan ? [
+    { label: `${conference} TITLE`, group: 'champion', color: 'var(--gold)' },
+    { label: `TOP 4 ${conference}`, group: 'topFour', color: 'var(--green)' },
+    { label: 'MID-PACK', group: 'topHalf', color: 'var(--blue-light)' },
+    { label: 'LOWER HALF', group: 'aboveBottomQuarter', color: 'var(--yellow)' },
+    { label: 'REBUILD', color: 'var(--muted)' },
+  ] : [
+    { label: 'ELITE', group: 'champion', color: 'var(--green)' },
+    { label: `TOP 3 ${conference}`, group: 'topThree', color: 'var(--green)' },
+    { label: `TOP 4 ${conference}`, group: 'topFour', color: 'var(--green)' },
+    { label: 'TOP HALF', group: 'topHalf', color: 'var(--gold)' },
+    { label: 'MID-TIER', group: 'aboveBottomQuarter', color: 'var(--muted)' },
+    { label: 'REBUILDING', color: 'var(--red)' },
+  ];
+  const cutoffs = historicalTierCutoffs(bands.slice(0, -1).map(band => band.group))
+    .map(cutoff => Number(cutoff.toFixed(1)));
+  document.getElementById(id + '-cutoffs').textContent = cutoffs
+    .map((cutoff, i) => `${bands[i].label} ${formatImpact(cutoff)}`).join(' · ');
+  tier.textContent = '—';
+  tier.style.color = 'var(--muted)';
+  if (fiveMan && playerCount < 5) {
+    detail.textContent = 'Need 5 players';
+    return;
+  }
+  if (!fiveMan && minutes <= 0) {
+    detail.textContent = 'Add players and assign minutes';
+    return;
+  }
+  if (!Number.isFinite(score)) {
+    detail.textContent = 'RAPM needed for all players in the score';
+    return;
+  }
+
+  // Classify using the same precision shown for scores and cutoffs.
+  const displayedScore = Number(score.toFixed(1));
+  const index = cutoffs.findIndex(minimum => displayedScore >= minimum);
+  const band = index < 0 ? bands[bands.length - 1] : bands[index];
+  tier.textContent = band.label;
+  tier.style.color = band.color;
+  const description = minutes === 0 ? 'Starting five' : `${minutes} rotation min`;
+  detail.textContent = `${description} · 2021–22 to 2025–26 standings benchmark`;
+}
+
+function renderLineupScore(scoreId, breakdownId, bpm = null, entries = [], scale = 1, unit = 'players') {
+  let total = 0, covered = 0, sum = 0;
+  for (const [player, weight] of entries) {
+    if (!player || weight <= 0) continue;
+    total += weight;
+    const rapm = lineupRapm(player);
+    if (!Number.isFinite(rapm)) continue;
+    covered += weight;
+    sum += weight * rapm;
+  }
+  const rapm = total && covered === total ? scale * sum / total : null;
+  const coverage = total && covered < total ? ` · ${covered}/${total} ${unit} rated` : '';
+  const score = mixImpact(bpm, rapm);
+  const scoreEl = document.getElementById(scoreId);
+  scoreEl.textContent = formatImpact(score);
+  scoreEl.className = 'rating-val ' + (score === null || ratingMetricWeight > 0 ? 'c-muted' :
+    score >= 10 ? 'c-green' : score >= 3 ? 'c-gold' : score >= -2 ? 'c-muted' : 'c-red');
+  document.getElementById(breakdownId).textContent =
+    `BPM ${formatImpact(bpm)} · RAPM ${formatImpact(rapm)}${coverage}`;
+  return score;
+}
+
+function refreshImpactViews() {
+  renderLineup();
+  nmUpdateStats();
+  const drawer = document.getElementById('drawer');
+  if (drawer.classList.contains('open')) openDrawer(drawer.dataset.playerId);
+}
+
+function updateRatingWeight(slider, refresh = true) {
+  const { key, from, to } = RATING_WEIGHTS[slider.id];
+  const percent = Number(slider.value);
+  if (slider.id === 'metric-weight') ratingMetricWeight = percent / 100;
+  else ratingSeasonWeight = percent / 100;
+  const mix = `${100 - percent}% ${from} · ${percent}% ${to}`;
+  document.getElementById(slider.id + '-blend').textContent = mix;
+  slider.setAttribute('aria-valuetext', mix);
+  updateSliderFill(slider, percent, 100);
+  if (refresh) {
+    try { localStorage.setItem(key, slider.value); } catch {}
+    refreshImpactViews();
+  }
+}
+
+async function loadLiveRatings() {
+  const status = document.getElementById('ratings-feed-status');
+  try {
+    const response = await fetch(window.frameElement?.dataset.ratingsCsv || RATINGS_CSV, {
+      cache: 'no-cache',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const { ratings, cutoffs } = readLiveRatings(await response.text());
+    liveRatings = ratings;
+    status.textContent = Object.entries(cutoffs).map(([metric, date]) =>
+      `${metric.toUpperCase()} ${date ? 'through ' + date : 'cutoff unavailable'}`).join(' · ');
+  } catch (error) {
+    console.warn('Could not load daily lineup ratings', error);
+    status.textContent = 'Daily ratings unavailable. Showing prior-season and manually entered values.';
+    return;
+  }
+  refreshImpactViews();
+  renderSeason();
+  renderPortal();
+}
+
 const SEASON_KEY = 'ucsd_season_2627_v1';
 const KSTAB = { ts:22, threePct:30, threeRate:8, usg:5, torate:10, arate:10,
                 oreb:10, dreb:10, stl:10, blk:12, ftr:12,
-                bpr:15, obpr:15, dbpr:15, prpgi:15, indDrtg:14 };
-const SEASON_FIELDS = ['bpr','obpr','dbpr','prpgi','ts','usg','efg','threePct','threeRate',
+                obpr:15, dbpr:15, indDrtg:14 };
+const SEASON_FIELDS = ['bpr','obpr','dbpr','ts','usg','efg','threePct','threeRate',
                        'arate','torate','oreb','dreb','stl','blk','ftr'];
 let SEASON = {};                                   // pid -> {gp, <field>:value}
 let TEAM_SEASON = { gp:0, adjOE:null, adjDE:null, manualOE:null, manualDE:null };
@@ -2710,8 +2783,7 @@ let TEAM_SEASON = { gp:0, adjOE:null, adjDE:null, manualOE:null, manualDE:null }
 
 // ═══ GAME LOG — derives season rate stats from box scores ═══
 // GAMES is the source of truth for anything a box score can produce.
-// SEASON (manual entry / Barttorvik paste) still supplies BPM and PRPG!,
-// which no box score contains, and overrides any derived field.
+// SEASON (manual entry / Barttorvik paste) can override the daily BPM feed.
 let GAMES = [];
 const BOXF = ['min','fgm','fga','tpm','tpa','ftm','fta','orb','drb','ast','tov','stl','blk'];
 const D1_AVG_DE = 104.0;   // rough national average adj defensive efficiency
@@ -2816,7 +2888,7 @@ function seasonGP(pid){ const e = effSeason(pid); return (e && e.gp) ? +e.gp : 0
 // Mean blend weight across the stat set — what the UI reports as "% current"
 function blendPct(pid){
   const gp = seasonGP(pid); if (!gp) return 0;
-  const ks = ['ts','usg','torate','oreb','dreb','stl','blk','bpr','prpgi'];
+  const ks = ['ts','usg','torate','oreb','dreb','stl','blk'];
   return Math.round(100 * ks.reduce((s,k)=>s+wOf(gp,KSTAB[k]),0)/ks.length);
 }
 
@@ -2831,19 +2903,13 @@ function applySeasonBlend(){
 
     if (gp > 0 && cur){
       SEASON_FIELDS.forEach(f => {
+        if (f === 'bpr') return; // The season slider blends BPM separately.
         const v = cur[f];
         if (v === undefined || v === null || v === '') return;
         const w = wOf(gp, KSTAB[f] !== undefined ? KSTAB[f] : 12);
         live[f] = +(w*(+v) + (1-w)*(prior[f] !== undefined ? prior[f] : +v)).toFixed(3);
       });
     }
-
-    // Conference adjustment phases out as real games accumulate: once a player
-    // has played a Big West schedule, his prior league is no longer the evidence.
-    const confDelta = (prior.adjBpr !== undefined && prior.bpr !== undefined)
-                      ? (prior.adjBpr - prior.bpr) : 0;
-    const wB = wOf(gp, KSTAB.bpr);
-    live.adjBpr = +((live.bpr || 0) + confDelta*(1-wB)).toFixed(2);
 
     // indDrtg: recompute from blended inputs, then fade from the stored prior
     const modeled = 102.5 + ((live.stl||1.5)-1.5)*-2.389
@@ -2907,7 +2973,7 @@ function seasonPaste(){
   if (lines.length < 2){ alert('Paste a header row plus at least one player row.'); return; }
   const split = l => l.split(/\t|,/).map(s=>s.trim());
   const ALIAS = { 'gp':'gp','g':'gp','games':'gp','bpm':'bpr','obpm':'obpr','dbpm':'dbpr',
-    'prpg!':'prpgi','prpg':'prpgi','ts':'ts','ts%':'ts','usg':'usg','usg%':'usg',
+    'ts':'ts','ts%':'ts','usg':'usg','usg%':'usg',
     'efg':'efg','efg%':'efg','3p%':'threePct','3pct':'threePct','3prate':'threeRate',
     'ast':'arate','arate':'arate','to':'torate','torate':'torate','tov%':'torate',
     'or':'oreb','oreb':'oreb','or%':'oreb','dr':'dreb','dreb':'dreb','dr%':'dreb',
@@ -2936,7 +3002,7 @@ function seasonPaste(){
 function renderSeason(){
   const el = document.getElementById('season-table'); if (!el) return;
   const ids = Object.keys(PRIOR);
-  const F = [['gp','GP'],['bpr','BPM'],['prpgi','PRPG!'],['ts','TS%'],['usg','USG'],
+  const F = [['gp','GP'],['bpr','BPM'],['ts','TS%'],['usg','USG'],
              ['threePct','3P%'],['torate','TOv%'],['oreb','OR%'],['dreb','DR%'],
              ['stl','STL%'],['blk','BLK%'],['ftr','FTR']];
   let h = '<table style="width:100%;border-collapse:collapse;font-size:10px;">';
@@ -2944,10 +3010,11 @@ function renderSeason(){
      + '<th style="text-align:left;padding:5px 6px;font-size:8px;letter-spacing:.1em;">PLAYER</th>'
      + F.map(f=>`<th style="padding:5px 3px;font-size:8px;">${f[1]}</th>`).join('')
      + '<th style="padding:5px 6px;font-size:8px;">% CUR</th>'
-     + '<th style="padding:5px 6px;font-size:8px;">BLENDED BPM</th></tr>';
+     + '<th style="padding:5px 6px;font-size:8px;">BLENDED BPM</th>'
+     + '<th style="padding:5px 6px;font-size:8px;">BLENDED RAPM</th></tr>';
   ids.forEach((pid,i)=>{
     const p = PLAYERS[pid], pr = PRIOR[pid], cur = effSeason(pid)||{};
-    const priorBpm = pr.adjBpr ?? pr.bpr;
+    const bpm = lineupBpm(p);
     const pct = blendPct(pid);
     const col = pct>=70?'var(--green)':pct>=35?'var(--gold)':'var(--muted)';
     h += `<tr style="background:${i%2?'var(--surface)':'transparent'};border-bottom:1px solid var(--border);">`
@@ -2955,14 +3022,17 @@ function renderSeason(){
        + `<span style="color:var(--muted);font-size:8px;"> ${p.pos||''}</span></td>`;
     F.forEach(f=>{
       const v = (f[0]==='gp') ? (cur.gp??'') : (cur[f[0]]??'');
-      h += `<td style="padding:2px;"><input value="${v}" placeholder="${f[0]==='gp'?'0':(pr&&pr[f[0]]!==undefined?pr[f[0]]:'')}"`
+      const placeholder = f[0] === 'bpr' ? (bpm.current?.toFixed(2) ?? '') :
+        f[0] === 'gp' ? '0' : (pr[f[0]] ?? '');
+      h += `<td style="padding:2px;"><input value="${v}" placeholder="${placeholder}"`
          + ` onchange="seasonSet('${pid}','${f[0]}',this.value)"`
          + ` style="width:100%;min-width:38px;font-family:'DM Mono',monospace;font-size:10px;padding:3px 2px;`
          + `text-align:center;border:1px solid var(--border);border-radius:2px;background:var(--bg);color:var(--text);"></td>`;
     });
     h += `<td style="padding:3px 6px;text-align:right;color:${col};font-weight:600;">${pct}%</td>`
-       + `<td style="padding:3px 6px;text-align:right;">${(p.adjBpr>=0?'+':'')}${(+p.adjBpr).toFixed(2)}`
-       + `<span style="color:var(--muted);font-size:8px;"> was ${priorBpm >= 0 ? '+' : ''}${priorBpm.toFixed(2)}</span></td></tr>`;
+       + `<td style="padding:3px 6px;text-align:right;">${formatImpact(bpm.value, 2)}`
+       + `<span style="color:var(--muted);font-size:8px;"> · 2025–26 ${formatImpact(bpm.prior, 2)}</span></td>`
+       + `<td style="padding:3px 6px;text-align:right;">${formatImpact(lineupRapm(p), 2)}</td></tr>`;
   });
   h += '</table>';
   el.innerHTML = h;
@@ -3127,23 +3197,16 @@ function initRatingsForecast() {
   } catch {
     ratingsForecast = null;
   }
-  const template = document.getElementById('projection-conference-template');
-  for (const heading of document.querySelectorAll('.projection-heading')) {
-    heading.append(template.content.cloneNode(true));
-    const wcc = heading.querySelector('[data-conference="wcc"]');
-    wcc.disabled = !Object.keys(ratingsForecast?.wcc ?? {}).length;
-    if (wcc.disabled) wcc.title = 'WCC forecast unavailable for this snapshot';
-    heading.querySelector('.forecast-conference').addEventListener('click', event => {
-      const button = event.target.closest('[data-conference]');
-      if (!button || button.disabled || button.dataset.conference === forecastConference) return;
-      forecastConference = button.dataset.conference;
-      for (const control of document.querySelectorAll('.projection-heading [data-conference]')) {
-        control.setAttribute('aria-pressed', String(control.dataset.conference === forecastConference));
-      }
-      updateRatings();
-      nmUpdateStats();
-    });
-  }
+  const selector = document.getElementById('lineup-conference');
+  selector.addEventListener('click', event => {
+    const button = event.target.closest('[data-conference]');
+    if (!button || button.dataset.conference === forecastConference) return;
+    forecastConference = button.dataset.conference;
+    for (const control of selector.querySelectorAll('[data-conference]')) {
+      control.setAttribute('aria-pressed', String(control.dataset.conference === forecastConference));
+    }
+    refreshImpactViews();
+  });
   renderProjectionSource('nineman', rotationForecast({}));
 }
 
@@ -3271,6 +3334,14 @@ function renderPlayerForecast(id) {
 
 async function initApp() {
   initRatingsForecast();
+  for (const [id, { key }] of Object.entries(RATING_WEIGHTS)) {
+    const slider = document.getElementById(id);
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved !== null && /^\d{1,3}$/.test(saved) && Number(saved) <= 100) slider.value = saved;
+    } catch {}
+    updateRatingWeight(slider, false);
+  }
   await seasonLoad();
   initProjectedStatsCard();
   loadPreset('base');
@@ -3278,6 +3349,7 @@ async function initApp() {
   renderGames();
   syncSeasonTeamFields();
   initSliderFills();
+  loadLiveRatings();
   await initSavedLineups();
   initRecruiting();
 }

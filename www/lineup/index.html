@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>UCSD Tritons — 2026-27 Lineup Predictor</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="lineup.css?v=20261115">
+<link rel="stylesheet" href="lineup.css?v=20261116e">
 </head>
 <body>
 
@@ -33,7 +33,7 @@
 
 <div class="method-bar">
   <strong>Methodology:</strong>&nbsp;
-  BPR from Barttorvik BPM · Conference strength measured from 2025-26 team AdjEM (365 teams), not blanket estimates · ORtg anchored to UCSD actual AdjOE 107.8 · Click any player for team context and scouting note
+  Tier cutoffs use final ratings near each standings boundary, averaged over five completed seasons
 </div>
 
 <div class="layout">
@@ -267,13 +267,26 @@
     </div>
 
     <div class="lineup-score-controls" id="lineup-score-controls">
-      <button type="button" id="conf-adj-btn" class="conf-adjustment" aria-pressed="true"
-        onclick="toggleConferenceAdjustment()">Big West BPM adjustment <span id="conf-adj-state">On</span></button>
-      <div class="prpg-control">
-        <label for="prpg-weight">PRPG! weight</label>
-        <input type="range" class="minutes-slider" id="prpg-weight" min="0" max="100" value="50"
-          aria-valuetext="50% PRPG!, 50% BPM" oninput="updatePrpgWeight(this)">
-        <output id="prpg-blend" for="prpg-weight">50% BPM · 50% PRPG!</output>
+      <div id="lineup-conference" class="forecast-conference" role="group" aria-label="Conference scenario">
+        <button type="button" class="preset-btn" data-conference="big-west" aria-pressed="true">Big West</button>
+        <button type="button" class="preset-btn" data-conference="wcc" aria-pressed="false">WCC</button>
+      </div>
+      <div class="rating-weight-control">
+        <label for="metric-weight">Metric weight</label>
+        <input type="range" class="minutes-slider" id="metric-weight" min="0" max="100" value="0"
+          aria-valuetext="100% BPM, 0% RAPM" oninput="updateRatingWeight(this)">
+        <output id="metric-weight-blend" for="metric-weight">100% BPM · 0% RAPM</output>
+      </div>
+      <div class="rating-weight-control">
+        <label for="season-weight">Season weight</label>
+        <input type="range" class="minutes-slider" id="season-weight" min="0" max="100" value="25"
+          aria-valuetext="75% 2025–26, 25% 2026–27" oninput="updateRatingWeight(this)">
+        <output id="season-weight-blend" for="season-weight">75% 2025–26 · 25% 2026–27</output>
+      </div>
+      <div class="ratings-feed-status">
+        <span id="ratings-feed-status" role="status">Loading daily ratings…</span>
+        <span>If only one season has a rating, it gets full weight. If both are missing, BPM uses the preseason estimate.</span>
+        <span>A score that uses RAPM needs a rating for every player in that lineup or rotation.</span>
       </div>
     </div>
 
@@ -322,16 +335,19 @@
           <div class="rating-label">Starting 5 Score</div>
           <div class="rating-val c-muted" id="rating-bpr">—</div>
           <div class="rating-desc" id="rating-desc">Add 5 players to generate rating</div>
+          <div class="rating-rapm" id="starting-rapm">BPM — · RAPM —</div>
         </div>
         <div class="rating-col">
           <div class="rating-label">Rotation Score</div>
           <div class="rating-val c-muted" id="rating-rotation">—</div>
           <div class="rating-desc" id="rating-rotation-desc">Minutes-weighted · full roster</div>
+          <div class="rating-rapm" id="rotation-rapm">BPM — · RAPM —</div>
         </div>
         <div class="rating-col">
           <div class="rating-label">Tier</div>
           <div class="rating-val" id="rating-tier" style="font-size:14px; padding-top:4px;">—</div>
-          <div class="rating-desc" id="rating-tier-desc">Big West projection</div>
+          <div class="rating-desc" id="rating-tier-desc">Need 5 players</div>
+          <div class="rating-desc" id="rating-tier-cutoffs"></div>
         </div>
       </div>
 
@@ -446,11 +462,13 @@
           <div class="rating-label">Rotation Score</div>
           <div class="rating-val c-muted" id="nm-bpm">—</div>
           <div class="rating-desc" id="nm-bpm-desc">Add players to calculate</div>
+          <div class="rating-rapm" id="nineman-rapm">BPM — · RAPM —</div>
         </div>
         <div class="rating-col">
           <div class="rating-label">Tier</div>
           <div class="rating-val" id="nm-tier" style="font-size:14px; padding-top:4px;">—</div>
-          <div class="rating-desc" id="nm-tier-desc">Big West projection</div>
+          <div class="rating-desc" id="nm-tier-desc">Add players and assign minutes</div>
+          <div class="rating-desc" id="nm-tier-cutoffs"></div>
         </div>
       </div>
 
@@ -486,9 +504,8 @@
         <div style="font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">
           ◷ 2026-27 Season Update — projection reweights as games accumulate</div>
         <div style="font-size:10px;color:var(--muted);line-height:1.6;margin-bottom:14px;max-width:none;">
-          Enter current-season numbers as they come in. Each stat blends toward live production on its own
-          schedule — <strong>weight = GP / (GP + k)</strong>, where k is how many games that stat needs before it
-          outweighs the pre-season prior. Usage settles fast (k=5); shooting is slow (k=22). Blanks keep the prior.
+          The lineup and rotation tabs control the season weight for BPM and RAPM. Other stats blend as games
+          accumulate — <strong>weight = GP / (GP + k)</strong>. Usage settles fast (k=5); shooting is slow (k=22).
         </div>
 
 
@@ -498,8 +515,7 @@
             ⬢ Game log — enter a box score after each game</div>
           <div style="font-size:9px;color:var(--muted);line-height:1.55;margin-bottom:10px;">
             Everything a box score can produce (TS%, 3P%, USG%, TO rate, OReb%, DReb%, STL%, BLK%, FTR) is derived
-            here. Manual entries override the calculated stats. BPM and PRPG! are model outputs no box score contains —
-            those still come from the Barttorvik paste.
+            here. Manual entries override calculated stats and the daily BPM value. RAPM comes from the ratings feed.
           </div>
           <div id="games-list" style="margin-bottom:11px;"></div>
 
@@ -566,7 +582,7 @@
           <div style="padding:9px 0 0;">
             <div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.5;">
               Header row first, player name in column one. Tab or comma separated. Recognized headers:
-              <span style="font-family:'DM Mono',monospace;">GP · BPM · OBPM · DBPM · PRPG! · TS · USG · eFG · 3P% · AST · TO · OR · DR · BLK · STL · FTR</span>
+              <span style="font-family:'DM Mono',monospace;">GP · BPM · OBPM · DBPM · TS · USG · eFG · 3P% · AST · TO · OR · DR · BLK · STL · FTR</span>
             </div>
             <textarea id="season-paste" rows="5" placeholder="Player&#9;GP&#9;BPM&#9;TS&#9;USG&#9;TO&#9;OR&#9;DR&#9;STL&#9;BLK&#10;Beath&#9;8&#9;1.4&#9;57.2&#9;21.0&#9;13.1&#9;2.4&#9;16.8&#9;3.1&#9;1.2"
               style="width:100%;font-family:'DM Mono',monospace;font-size:10px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--text);resize:vertical;"></textarea>
@@ -576,7 +592,7 @@
 
         <div style="display:flex;gap:7px;margin-bottom:10px;align-items:center;">
           <button class="preset-btn" onclick="seasonClear()">✕ Reset to pre-season</button>
-          <span style="font-size:9px;color:var(--muted);">Saves automatically · % CUR is the mean weight on live production</span>
+          <span style="font-size:9px;color:var(--muted);">Saves automatically · % CUR is the average weight for the other stats</span>
         </div>
 
         <div id="season-table" style="overflow-x:auto;"></div>
@@ -615,8 +631,8 @@
             <div style="font-size:8px;color:var(--muted);margin-bottom:3px;letter-spacing:0.1em;">SORT</div>
             <select id="portal-sort" onchange="renderPortal()"
               style="font-family:'DM Mono',monospace;font-size:10px;padding:5px 8px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);">
-              <option value="adjBpr">BPM</option>
-              <option value="prpgi">PRPG!</option>
+              <option value="bpm">BPM</option>
+              <option value="rapm">RAPM</option>
               <option value="ts">TS%</option>
               <option value="threePct">3PT%</option>
               <option value="indDrtg">DRtg (low=good)</option>
@@ -781,13 +797,6 @@
   <div class="drawer-note" id="drawer-note"></div>
 </div>
 
-<template id="projection-conference-template">
-  <div class="forecast-conference" role="group" aria-label="Projection conference">
-    <button type="button" class="preset-btn" data-conference="big-west" aria-pressed="true">Big West</button>
-    <button type="button" class="preset-btn" data-conference="wcc" aria-pressed="false">WCC</button>
-  </div>
-</template>
-
-<script src="lineup.js?v=20261115"></script>
+<script src="lineup.js?v=20261116j"></script>
 </body>
 </html>
