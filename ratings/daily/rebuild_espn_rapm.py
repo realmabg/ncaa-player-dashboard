@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from itertools import groupby
 from pathlib import Path
 
-from player_ratings import ROOT, feed_rows, game_logs, key, roster_jersey_ids, roster_jersey_key, unique
+from player_ratings import ROOT, feed_rows, game_logs, key, roster_jersey_ids, roster_jersey_player, unique
 from rapm_repairs import MISSING_ROSTER_PLAYERS
 
 SOURCE_NOTES = {
@@ -49,6 +49,9 @@ SOURCE_NOTES = {
 VERIFIED_REPLAY_MINUTES = {
     "401911239": ("https://richmondspiders.com/sports/mens-basketball/stats/2026-27/southern-illinois/boxscore/12124",
                   {"Sam Simmons Jr.": 9, "Brock McClure": 2}),
+    # The official substitution log gives stints of 2:20, 1:42 and 1:29.
+    "401918994": ("https://tsutigers.com/sports/mens-basketball/stats/2026-27/south-florida/boxscore/6349",
+                  {"Ajayi Simmons": 331 / 60}),
     "401921086": ("https://umbcretrievers.com/sports/mens-basketball/stats/2026-27/morgan-state-university/boxscore/9692",
                   {"Manok Lual": 3, "Matar Wade": 2}),
 }
@@ -429,7 +432,8 @@ def replay(plays, players, final):
     return possessions, minutes, bad_seconds, actor_errors, technical_points
 
 
-def reconstruct(inputs, sources, match_file, destination, report_file, season=2027, *, use_torvik=True):
+def reconstruct(inputs, sources, match_file, destination, report_file, season=2027, *,
+                use_torvik=True, ncaa_minutes=None):
     team_names = {row["id"]: row["team"] for row in feed_rows(inputs, "team_ids", season)}
     espn_to_ncaa = unique(
         (row[f"{side}_espn_team_id"], row[f"{side}_ncaa_team_id"])
@@ -492,6 +496,7 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
             mapped = {}
             missing = set()
             discrepancies = []
+            ncaa_url, game_minutes = (ncaa_minutes or {}).get(event, (None, {}))
             box_by_id = {club: {row[51]: row for row in rows.values()} for club, rows in boxes.items()}
             for (club, player), (name, jersey, _, source_minutes, source_points) in players.items():
                 pk = key(name)
@@ -509,7 +514,7 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
                     if jersey != source_jersey or not roster_row or roster_row["jersey"] != official_jersey:
                         raise ValueError(f"Roster jersey mismatch for {name}")
                 if target is None:
-                    target = jersey_ids.get(roster_jersey_key(team_ids[club], jersey, name))
+                    target = roster_jersey_player(jersey_ids, team_ids[club], jersey, name)
                 if target is None:
                     missing.add((club, name, jersey))
                 else:
@@ -522,7 +527,9 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
                 if use_torvik and box is None and (source_points or (actual > 1 and target)):
                     raise ValueError(f"Missing player box for {name}")
                 diff = None if box is None else round(actual - float(box[8]), 3)
-                discrepancies.append((round(actual - source_minutes, 3), diff, name, actual))
+                corroborating_minutes = game_minutes.get((team_ids[club], target, source_points))
+                discrepancies.append((round(actual - source_minutes, 3), diff, name, actual,
+                                      corroborating_minutes))
             report["reconstructed"] = len(observations)
             report["technical_points"] = sum(tech.values())
             report["non_five_player_seconds"] = bad_seconds
@@ -530,15 +537,25 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
             report["source_max_minute_error"] = max(abs(row[0]) for row in discrepancies)
             report["torvik_max_minute_error"] = max((abs(row[1]) for row in discrepancies if row[1] is not None), default=None)
             school_url, school_minutes = VERIFIED_REPLAY_MINUTES.get(event, (None, {}))
-            timing_disputes = [
-                (source_diff, box_diff, name)
-                for source_diff, box_diff, name, actual in discrepancies
-                if abs(source_diff if box_diff is None else box_diff) > 1
-                and (name not in school_minutes or abs(actual - school_minutes[name]) > 0.5)
-            ]
-            if school_url and not timing_disputes:
-                report["source_review"] = "Official school box corroborates disputed replay minutes"
-                report["review_source_url"] = school_url
+            timing_disputes = []
+            ncaa_confirmed = False
+            for source_diff, box_diff, name, actual, ncaa_time in discrepancies:
+                if abs(source_diff if box_diff is None else box_diff) <= 1:
+                    continue
+                if name in school_minutes and abs(actual - school_minutes[name]) <= 0.5:
+                    continue
+                # The independent box must agree on the player, points and
+                # replayed time. Keep the check on supplied Torvik boxes.
+                if box_diff is None and ncaa_time is not None and abs(actual - ncaa_time) <= 0.5:
+                    ncaa_confirmed = True
+                    continue
+                timing_disputes.append((source_diff, box_diff, name))
+            if not timing_disputes:
+                if school_url:
+                    report["source_review"] = "Official school box corroborates disputed replay minutes"
+                    report["review_source_url"] = school_url
+                if ncaa_confirmed:
+                    report["ncaa_minutes_source"] = ncaa_url
             report["minute_review"] = "; ".join(
                 f"{name} ({source_diff:+.2f} source, {box_diff if box_diff is not None else 'unavailable'} Torvik)"
                 for source_diff, box_diff, name in timing_disputes

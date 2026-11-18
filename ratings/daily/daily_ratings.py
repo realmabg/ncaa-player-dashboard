@@ -17,14 +17,14 @@ from box_plus_minus import BOX_COLUMNS, complete_team_box, season_bpm
 from daily_rapm import ESPN, PACIFIC, espn_scoreboards, fetch_json, recover_espn
 from player_ratings import (FEEDS, RAPM_HALF_LIFE_DAYS, RELEASES, ROOT, download, feed_rows,
                             key, lineup_ratings, ncaa_date, rapm_game_weight, roster_jersey_ids,
-                            roster_jersey_key, solve_rapm, unique)
+                            roster_jersey_player, solve_rapm, unique)
 from rapm_repairs import MISSING_ROSTER_PLAYERS, expected_score
 from rebuild_espn_rapm import ESPN_NAME_VARIANTS, ESPN_ROSTER_JERSEYS, espn_game, replay
 import ratings_store as store
 
 # Increment INPUT_RULES_VERSION when validation, source selection or curated
 # corrections change. The next successful run revalidates stored games.
-INPUT_RULES_VERSION = 7
+INPUT_RULES_VERSION = 8
 MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
                  f"+inputs-v{INPUT_RULES_VERSION}")
 
@@ -272,7 +272,7 @@ def espn_box(game, summary, teams, aliases, player_ids, jersey_ids, reviewed_ids
                 player = player or school_ids.get((team, key(name)))
                 jersey = athlete.get("jersey")
                 player = player or reviewed_ids.get((team, name, jersey))
-                player = player or jersey_ids.get(roster_jersey_key(team, jersey, name))
+                player = player or roster_jersey_player(jersey_ids, team, jersey, name)
                 if not player:
                     raise ValueError(f"ESPN box player {name} has no unique NCAA roster ID")
                 fg, fga = map(int, data["FG"].split("-"))
@@ -513,13 +513,26 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
         finals = scores[gid]
         return "official_school" not in finals and len({tuple(sorted(s.items())) for s in finals.values()}) > 1
 
-    missing = {}
+    missing, ncaa_minutes = {}, {}
     for gid, game in games.items():
         if gid not in observations and not score_conflict(gid):
             played = date.fromisoformat(game["game_date"])
             sides = {teams[game[f"{s}_team_id"]]: game[f"{s}_score"] for s in ("home", "away")}
             missing[played, frozenset(sides.items())] = sides
-    fallback, gaps = recover_espn(inputs, scratch, season, missing, teams, {})
+            providers = {row["provider"]: row for row in sources[gid]}
+            if "ncaa" in providers and "espn" in providers:
+                ncaa = providers["ncaa"]
+                try:
+                    box = valid_box(ncaa_box(game, ncaa_rows[ncaa["provider_game_id"]],
+                                             teams, neutral=False), game, teams)
+                except (KeyError, TypeError, ValueError):
+                    continue
+                team_ids = {teams[tid]: tid for tid in (game["home_team_id"], game["away_team_id"])}
+                ncaa_minutes[providers["espn"]["provider_game_id"]] = (ncaa["url"], {
+                    (team_ids[row[47]], row[51].removeprefix("ncaa:"), row[33]): row[8]
+                    for row in box
+                })
+    fallback, gaps = recover_espn(inputs, scratch, season, missing, teams, {}, ncaa_minutes=ncaa_minutes)
     if fallback:
         lineup_ratings(inputs, season, cutoff, game_observer=remember, extra_backfill=fallback, fit=False)
     gap_index = {(g["date"], frozenset(g["teams"])): g["reason"] for g in gaps}
@@ -529,10 +542,11 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
             with path.open(newline="") as f:
                 for row in csv.DictReader(f):
                     event = row["espn_event_id"]
-                    if row["excluded_lineup_possessions"]:
+                    if row.get("excluded_lineup_possessions"):
                         exclusions[event] = int(row["excluded_lineup_possessions"])
                     historical_sources[event] = {field: row[field] for field in
-                        ("source", "play_by_play_url", "source_review", "review_source_url") if row.get(field)}
+                        ("source", "play_by_play_url", "source_review", "review_source_url",
+                         "ncaa_minutes_source") if row.get(field)}
 
     def fetch_box(eid):
         path = scratch / f"{eid}.json"

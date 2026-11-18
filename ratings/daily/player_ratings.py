@@ -91,12 +91,26 @@ def roster_jersey_key(team, jersey, name):
 
 
 def roster_jersey_ids(roster_rows):
-    return unique(
-        (identity, row["player_id"])
-        for row in roster_rows if row["player_id"]
-        for name in (row["name"], row["clean_name"])
-        if (identity := roster_jersey_key(row["team_id"], row["jersey"], name)) is not None
-    )
+    matches = []
+    for row in roster_rows:
+        team, jersey, player = row["team_id"], row["jersey"], row["player_id"]
+        if not player or not jersey.isdigit():
+            continue
+        for name in (row["name"], row["clean_name"]):
+            identity = roster_jersey_key(team, jersey, name)
+            if identity:
+                matches.append((identity, player))
+            parts = [part for part in name.split() if key(part)]
+            # Retain at least one given name and the surname. For example,
+            # Nolan Eric Junior Kemm can match Junior Kemm with the same jersey.
+            for start in range(len(parts) - 1):
+                matches.append(((team, jersey, key(" ".join(parts[start:]))), player))
+    return unique(matches)
+
+
+def roster_jersey_player(jersey_ids, team, jersey, name):
+    return (jersey_ids.get((team, jersey, key(name)))
+            or jersey_ids.get(roster_jersey_key(team, jersey, name)))
 
 
 def download(url, destination):

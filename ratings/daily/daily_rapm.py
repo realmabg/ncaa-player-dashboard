@@ -107,7 +107,7 @@ def scoreboard_matchups(inputs, scratch, season, cutoff, known, teams):
     return missing, teams
 
 
-def recover_espn(inputs, scratch, season, missing, team_boxes, known):
+def recover_espn(inputs, scratch, season, missing, team_boxes, known, *, ncaa_minutes=None):
     if not missing:
         return None, []
     espn_ids = unique(
@@ -177,7 +177,7 @@ def recover_espn(inputs, scratch, season, missing, team_boxes, known):
         writer.writeheader()
         writer.writerows(ready)
     reconstruct(inputs, scratch, matches_path, destination, report, season,
-                use_torvik=(inputs / "torvik-games.json.gz").exists())
+                use_torvik=(inputs / "torvik-games.json.gz").exists(), ncaa_minutes=ncaa_minutes)
     with report.open(newline="") as file:
         for row in csv.DictReader(file):
             if row["issue"]:
