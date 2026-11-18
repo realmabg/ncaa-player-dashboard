@@ -53,6 +53,12 @@ VERIFIED_REPLAY_MINUTES = {
                   {"Manok Lual": 3, "Matar Wade": 2}),
 }
 ESPN_NAME_VARIANTS = {
+    # San Diego State lists its #45, Jeremiah Cherry, by his nickname.
+    # https://goaztecs.com/sports/mens-basketball/roster/player/bear-cherry
+    ("21", "Bear Cherry"): ("11954181", "45", None),
+    # The official Alabama State box lists Terrence Hampton at #30.
+    # https://bamastatesports.com/boxscore.aspx?id=11641&path=mbball
+    ("2011", "Terrance Hampton"): ("12154306", "33", None),
     # Same-team aliases checked against roster jerseys and Torvik game boxes.
     ("2065", "Daniel Perez-Rouzan"): ("12156694", "23", 76244),
     ("2514", "Mike Parrotta"): ("12157957", "24", 145562),
@@ -121,7 +127,7 @@ ESPN_NAME_VARIANTS = {
     ("2110", "R.J. Young"): ("12148184", "0", None),
     ("2110", "Simm-Marten Saadi"): ("12148179", "35", None),
 }
-ESPN_ROSTER_JERSEYS = {"11474386": "7", "11478497": "23"}
+ESPN_ROSTER_JERSEYS = {"11474386": "7", "11478497": "23", "12154306": "30"}
 SHOT_CORRECTIONS = {
     "401924911": (1, 223, "5308449", "5108047"),
     "401920371": (2, 519, "5107287", "5106867"),

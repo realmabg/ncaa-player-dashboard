@@ -24,7 +24,7 @@ import ratings_store as store
 
 # Increment INPUT_RULES_VERSION when validation, source selection or curated
 # corrections change. The next successful run revalidates stored games.
-INPUT_RULES_VERSION = 6
+INPUT_RULES_VERSION = 7
 MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
                  f"+inputs-v{INPUT_RULES_VERSION}")
 
