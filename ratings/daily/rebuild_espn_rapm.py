@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from itertools import groupby
 from pathlib import Path
 
-from player_ratings import ROOT, feed_rows, game_logs, key, unique
+from player_ratings import ROOT, feed_rows, game_logs, key, roster_jersey_ids, roster_jersey_key, unique
 from rapm_repairs import MISSING_ROSTER_PLAYERS
 
 SOURCE_NOTES = {
@@ -87,6 +87,9 @@ ESPN_NAME_VARIANTS = {
     ("315", "Tae Blackshear"): ("11638289", "77", 133820),
     ("25", "Semetri Carr"): ("11471986", "3", 135006),
     ("399", "Zacharie Matulu"): ("11481537", "14", 79205),
+    # Virginia Tech identifies Efrem “Butta” Johnson and lists him at #33.
+    # https://hokiesports.com/news/2026/10/1/butta-johnson-set-to-join-hokies-mens-basketball-roster
+    ("259", "Butta Johnson"): ("12155589", "33", None),
     ("257", "Sam Simmons Jr."): ("12151923", "2", 145134),
     ("2400", "Tianhao Wu"): ("12151613", "9", 145098),
     ("264", "BJ Roy"): ("11471842", "3", 135113),
@@ -134,6 +137,8 @@ class Play:
     player: str = ""
     points: int = 0
     last_free_throw: bool = False
+    single_free_throw: bool = False
+    and_one: bool = False
 
 
 def seconds(value):
@@ -168,7 +173,7 @@ def espn_game(summary, event=""):
         play_type = row["type"]["id"]
         text = row["text"]
         kind = kinds.get(play_type, "")
-        last = False
+        last = single = False
         if play_type == "584":
             kind = "in" if "subbing in" in text else "out" if "subbing out" in text else "bad_sub"
         elif play_type == "540":
@@ -177,6 +182,7 @@ def espn_game(summary, event=""):
             if attempt is None:
                 raise ValueError(f"unrecognized free throw: {text}")
             last = attempt[1] == attempt[2]
+            single = attempt[1] == attempt[2] == "1"
         elif row.get("shootingPlay"):
             kind = "shot"
         elif play_type == "615" and "Jump Ball won" in text:
@@ -186,7 +192,7 @@ def espn_game(summary, event=""):
             player = actors[0]["athlete"]["id"] if actors else ""
             plays.append(Play(row["period"]["number"], seconds(row["clock"]["displayValue"]),
                               kind, row.get("team", {}).get("id", ""), player,
-                              int(row["scoreValue"]) if row.get("scoringPlay") else 0, last))
+                              int(row["scoreValue"]) if row.get("scoringPlay") else 0, last, single))
         elif row.get("scoringPlay"):
             raise ValueError(f"unrecognized scoring play: {text}")
     if event in SHOT_CORRECTIONS:
@@ -216,6 +222,17 @@ def espn_game(summary, event=""):
             i + 1 for i in indices if plays[i].kind == after
         )
         plays.insert(destination, plays.pop(index))
+    # ESPN can give the basket and its continuation free throw different clocks.
+    # Only use the next live action in the same period, stopping at technicals.
+    following = None
+    for i in range(len(plays) - 1, -1, -1):
+        play = plays[i]
+        if (play.kind == "shot" and play.points and following and following.single_free_throw
+                and (following.period, following.team, following.player)
+                == (play.period, play.team, play.player)):
+            plays[i] = replace(play, and_one=True)
+        if play.kind not in {"in", "out", "foul", "dead_rebound", "block", "steal"}:
+            following = play
     return teams, final, players, plays
 
 
@@ -382,10 +399,10 @@ def replay(plays, players, final):
                 if anchor is None:
                     anchor = (play, snapshot)
                 points += play.points
-                and_one = kind == "shot" and play.points and any(
+                and_one = play.and_one or (kind == "shot" and play.points and any(
                     p.kind == "free_throw" and p.team == team and p.player == player
                     and p.last_free_throw for p in block[i + 1:]
-                )
+                ))
                 if kind in {"turnover", "def_rebound"} or (kind == "shot" and play.points and not and_one) or (
                     kind == "free_throw" and play.last_free_throw and play.points
                 ):
@@ -420,6 +437,7 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
         for row in roster for name in (row["name"], row["player"], row["clean_name"])
         if name and row["player_id"]
     )
+    jersey_ids = roster_jersey_ids(roster)
     roster_by_id = {(row["team_id"], row["player_id"]): row for row in roster}
     for (team, name), (player, _) in MISSING_ROSTER_PLAYERS.items():
         ncaa_players.setdefault((team, key(name)), player)
@@ -484,6 +502,8 @@ def reconstruct(inputs, sources, match_file, destination, report_file, season=20
                     official_jersey = ESPN_ROSTER_JERSEYS.get(target, source_jersey)
                     if jersey != source_jersey or not roster_row or roster_row["jersey"] != official_jersey:
                         raise ValueError(f"Roster jersey mismatch for {name}")
+                if target is None:
+                    target = jersey_ids.get(roster_jersey_key(team_ids[club], jersey, name))
                 if target is None:
                     missing.add((club, name, jersey))
                 else:

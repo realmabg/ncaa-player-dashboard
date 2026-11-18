@@ -15,7 +15,8 @@ retries. The recent window also discovers games posted late by both sources. The
 validates SportsDataverse and ESPN box scores separately, compares the
 fields BPM uses, and logs disagreements for review. ESPN roster aliases
 must match uniquely by team, jersey, surname, and first initial when a
-full-name match fails. Previously verified name variants also require the
+full-name match fails. BPM and the RAPM replay use the same guarded roster match.
+Previously verified name variants also require the
 audited ESPN and NCAA jerseys. When reported minutes conflict or a box
 fails validation, the job can use playing time reconstructed from ESPN
 substitutions after checking every period, lineup, and player point total.
@@ -29,7 +30,9 @@ audit records the default and disputed fields and keeps the game open
 for review and retry. Games still need a validated box and resolved final
 score to count. RAPM can fall back
 to replaying ESPN starters and substitutions when the NCAA lineup feed
-has no valid game. Historical verified corrections ship with the code.
+has no valid game. The replay keeps an and-one free throw with its basket
+when ESPN places them at different clock times. Historical verified
+corrections ship with the code.
 
 `bpm_school_boxes_2027.csv` contains audited official box scores for
 the November 11 backfill. The job checks team scores, player IDs,

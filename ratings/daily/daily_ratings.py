@@ -16,14 +16,15 @@ from uuid import uuid4
 from box_plus_minus import BOX_COLUMNS, complete_team_box, season_bpm
 from daily_rapm import ESPN, PACIFIC, espn_scoreboards, fetch_json, recover_espn
 from player_ratings import (FEEDS, RAPM_HALF_LIFE_DAYS, RELEASES, ROOT, download, feed_rows,
-                            key, lineup_ratings, ncaa_date, rapm_game_weight, solve_rapm, unique)
+                            key, lineup_ratings, ncaa_date, rapm_game_weight, roster_jersey_ids,
+                            roster_jersey_key, solve_rapm, unique)
 from rapm_repairs import MISSING_ROSTER_PLAYERS, expected_score
 from rebuild_espn_rapm import ESPN_NAME_VARIANTS, ESPN_ROSTER_JERSEYS, espn_game, replay
 import ratings_store as store
 
 # Increment INPUT_RULES_VERSION when validation, source selection or curated
 # corrections change. The next successful run revalidates stored games.
-INPUT_RULES_VERSION = 5
+INPUT_RULES_VERSION = 6
 MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
                  f"+inputs-v{INPUT_RULES_VERSION}")
 
@@ -229,13 +230,6 @@ def box_row(game, tid, name, player, minutes, stats, neutral, teams):
     return row
 
 
-def roster_name_parts(name):
-    parts = name.split()
-    while parts and not key(parts[-1]):
-        parts.pop()
-    return parts
-
-
 def ncaa_box(game, rows, teams, neutral):
     result = []
     for raw in rows:
@@ -278,10 +272,7 @@ def espn_box(game, summary, teams, aliases, player_ids, jersey_ids, reviewed_ids
                 player = player or school_ids.get((team, key(name)))
                 jersey = athlete.get("jersey")
                 player = player or reviewed_ids.get((team, name, jersey))
-                if not player and jersey is not None:
-                    parts = roster_name_parts(name)
-                    if len(parts) > 1:
-                        player = jersey_ids.get((team, jersey, key(parts[-1]), key(parts[0])[:1]))
+                player = player or jersey_ids.get(roster_jersey_key(team, jersey, name))
                 if not player:
                     raise ValueError(f"ESPN box player {name} has no unique NCAA roster ID")
                 fg, fga = map(int, data["FG"].split("-"))
@@ -510,11 +501,7 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
         (((team, key(name)), pid) for (team, pid), name in roster.items()),
         (((r["team_id"], key(name)), r["player_id"]) for r, name in roster_names),
     ))
-    jersey_ids = unique(
-        ((r["team_id"], r["jersey"], key(parts[-1]), key(parts[0])[:1]), r["player_id"])
-        for r in roster_rows if r["jersey"].isdigit()
-        for parts in (roster_name_parts(r["name"]), roster_name_parts(r["clean_name"])) if len(parts) > 1
-    )
+    jersey_ids = roster_jersey_ids(roster_rows)
     roster_by_id = {(r["team_id"], r["player_id"]): r for r in roster_rows}
     reviewed_ids = {}
     for (club, name), (player, espn_jersey, _) in ESPN_NAME_VARIANTS.items():
@@ -825,7 +812,9 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
                     for metric in coverage:
                         if (gid, metric) not in included:
                             reason = reasons.get((gid, metric)) or "No accepted inputs"
-                            reason = " ".join(reason.split()).replace("|", "&#124;").replace("<", "&lt;")
+                            reason = " ".join(reason.split())
+                            print(f"Missing {metric.upper()} | {played} | {gid} | {reason}")
+                            reason = reason.replace("|", "&#124;").replace("<", "&lt;")
                             print(f"| {played} | {gid} | {metric.upper()} | {reason} |", file=summary)
 
     if not dry_run:

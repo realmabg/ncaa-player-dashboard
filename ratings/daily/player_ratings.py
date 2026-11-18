@@ -83,6 +83,22 @@ def unique(items):
             if len(values) == 1}
 
 
+def roster_jersey_key(team, jersey, name):
+    parts = [part for part in name.split() if key(part)]
+    if jersey and jersey.isdigit() and len(parts) > 1:
+        return team, jersey, key(parts[-1]), key(parts[0])[:1]
+    return None
+
+
+def roster_jersey_ids(roster_rows):
+    return unique(
+        (identity, row["player_id"])
+        for row in roster_rows if row["player_id"]
+        for name in (row["name"], row["clean_name"])
+        if (identity := roster_jersey_key(row["team_id"], row["jersey"], name)) is not None
+    )
+
+
 def download(url, destination):
     request = Request(url, headers={"User-Agent": "UCSD-Recruiting-Player-Ratings/1.0"})
     with urlopen(request, timeout=90) as response, destination.open("wb") as output:
