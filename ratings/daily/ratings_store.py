@@ -84,7 +84,9 @@ def load_season(season, cutoff):
     # One JSON row per accepted game and metric avoids a large aggregate in Postgres.
     lines = query(f"""select jsonb_build_object('game_key',s.game_key,'metric',s.metric,
         'revision',s.accepted_revision,'status',s.status,'reason',s.reason,
-        'excluded_rows',s.excluded_rows,'rows',i.rows)
+        'excluded_rows',s.excluded_rows,'rows',i.rows,
+        'evidence',jsonb_build_object('minutes_disputes',coalesce(i.evidence->'minutes_disputes','[]'::jsonb),
+                                    'sportsdataverse_review',i.evidence->'sportsdataverse_review'))
         from ratings.game_metric_status s join ratings.games g using (season,game_key)
         left join ratings.game_inputs i on (s.season,s.game_key,s.metric,s.accepted_revision)=
           (i.season,i.game_key,i.metric,i.revision)
@@ -139,3 +141,18 @@ def load_queue(season, cutoff, stamp):
                          and s.next_retry_at<='{stamp}'), '[]'));""")
     result = json.loads(data)
     return result["games"], result["due"], result["last_cutoff"], result["last_version"]
+
+
+def load_source_review_inputs(season, dates):
+    """Read prior source decisions and the accepted rows that still need comparison."""
+    lines = query(f"""select jsonb_build_object('game_key', i.game_key, 'metric', i.metric,
+          'rows', case when i.evidence->>'sportsdataverse_review'='pending' then i.rows end,
+          'revision', i.revision, 'evidence', i.evidence)
+        from ratings.game_metric_status s join ratings.games g using (season,game_key)
+        join ratings.game_inputs i on (s.season,s.game_key,s.metric,s.accepted_revision)=
+          (i.season,i.game_key,i.metric,i.revision)
+        where i.season={season}
+          and g.game_date in (select value::date from jsonb_array_elements_text({payload(sorted(d.isoformat() for d in dates))}))
+          and (i.evidence->>'sportsdataverse_review'='pending'
+               or i.evidence->>'selected' in ('ncaa','NCAA'));""")
+    return {(row["game_key"], row["metric"]): row for row in map(json.loads, lines.splitlines())}

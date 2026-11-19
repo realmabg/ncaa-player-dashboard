@@ -23,7 +23,8 @@ copy (
            s.coverage #>> '{bpm,expected_games}' as expected_games,
            s.coverage #>> '{bpm,included_games}' as bpm_games_included,
            s.coverage #>> '{rapm,included_games}' as rapm_games_included,
-           s.coverage #>> '{rapm,excluded_input_rows}' as rapm_excluded_possessions
+           s.coverage #>> '{rapm,excluded_input_rows}' as rapm_excluded_possessions,
+           p.details->>'epm' as epm
     from latest s join ratings.player_ratings p using (season, through_date)
     where p.bpm is not null or p.rapm is not null
     order by p.team, p.player_name, p.player_key

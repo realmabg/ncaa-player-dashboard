@@ -74,12 +74,14 @@ def main():
     sys.path.insert(0, str(workspace / "scripts"))
     from audit_game_logs import read_rows
     from court_impact_population import destination_aliases
-    from live_player_skills import ALL_STATS, game_evidence, read_games
+    from live_player_skills import ALL_STATS, HEADS, game_evidence, priors, read_games, roster_context, sums, update
+    import numpy as np
     import pandas as pd
     from profile_data import school_key
     from three_point import conference_tier
 
     aliases = destination_aliases()
+    current_destinations = {}
     # The NCAA roster uses the university's full name for the Torvik team.
     roster_school = {"lsuneworleans": "New Orleans"}
 
@@ -94,6 +96,7 @@ def main():
         if key in team_conferences and team_conferences[key] != conf:
             raise ValueError(f"Conflicting conferences for {row['team']}")
         team_conferences[key] = conf
+        current_destinations[key] = aliases.get(school_key(row["team"]), row["team"])
     games, _ = read_rows(games_path)
     if any(row[52] != SEASON for row in games):
         raise ValueError("Expected the 2026–27 Torvik advanced game archive")
@@ -142,7 +145,7 @@ def main():
             candidates = {pid for name in names for pid in historical[team, name]
                           if not current_teams[pid] or team in current_teams[pid]}
             source = "previous_torvik_player_same_team"
-        destination = aliases.get(school_key(school))
+        destination = current_destinations.get(team)
         conf = team_conferences.get(team)
         found = next(iter(candidates)) if len(candidates) == 1 else None
         if found is None:
@@ -152,7 +155,7 @@ def main():
         elif current_teams[found] - {team}:
             status = "torvik_id_has_multiple_current_teams"
         else:
-            status = source
+            status = source if team in aliases else "current_team_outside_model_registry"
             roster.setdefault(found, set()).add((destination, conf))
             for name in names | current_names[team, found]:
                 ratings_keys[row["team"], name].add(found)
@@ -170,7 +173,12 @@ def main():
     ]
     if not roster_rows:
         raise ValueError("No NCAA roster players matched the Torvik feed")
-    write_roster(roster_path, roster_rows)
+    # The fitted forecast requires a destination from its historical registry.
+    # Current Division I teams outside that registry can use the pooled prior.
+    model_roster = [row for row in roster_rows if school_key(row["destination_team"]) in aliases]
+    if not model_roster:
+        raise ValueError("No roster players found in the fitted model's school registry")
+    write_roster(roster_path, model_roster)
     write_audit(audit / "roster_matches.csv", audit_rows)
     print("NCAA roster:", dict(Counter(row["status"] for row in audit_rows)), flush=True)
 
@@ -204,9 +212,37 @@ def main():
         forecasts[pid][stat] = values
     if any(set(values) != set(ALL_STATS) for values in forecasts.values()):
         raise ValueError("Expected all 18 forecast stats per mapped roster player")
+    for row in roster_rows:
+        pid = row["player_id"]
+        if school_key(row["destination_team"]) not in aliases:
+            forecasts[pid] = {stat: [None, None] for stat in ALL_STATS}
+            forecast_teams[pid] = row["destination_team"]
 
     eligible_games = read_games(games_path, SEASON, pd.Timestamp(args.date), aliases)
     evidence = game_evidence(eligible_games)
+    fallback = {}
+    missing_prior = [pid for pid, stats in forecasts.items()
+                     if all(prior is None and updated is None for prior, updated in stats.values())]
+    if missing_prior:
+        cohort = pd.DataFrame.from_dict(
+            {pid: {head: stats[head][0] for head in HEADS} for pid, stats in forecasts.items()},
+            orient="index",
+        ).dropna()
+        if cohort.empty:
+            raise ValueError("No eligible preseason forecasts for the Division I prior")
+        # Reuse the production model's exposure scales and recency settings.
+        # Only the prior mean changes for players without an eligible profile.
+        sample = pd.DataFrame(roster_rows).set_index("player_id").loc[[cohort.index[0]]].reset_index()
+        _, strength = priors(roster_context(sample, SEASON - 1, aliases), "production")
+        index = pd.MultiIndex.from_tuples(
+            [(pid, canonical(forecast_teams[pid])) for pid in missing_prior], names=["player_id", "team"],
+        )
+        base = pd.DataFrame([cohort.mean()] * len(index), index=index)
+        settings = json.loads((workspace / "outputs/live_player_skills_v2/settings.json").read_text())
+        weights = np.exp2(-(pd.Timestamp(args.date) - evidence.date).dt.days / settings["half_life_days"])
+        rates = update(base, strength, sums(evidence, index, weights), settings["dynamic_strength"])
+        fallback = dict(zip(missing_prior, rates[ALL_STATS].to_numpy().tolist(), strict=True))
+
     totals = evidence.groupby(["player_id", "team"]).sum(numeric_only=True)
     actuals = {
         stat: totals[f"{stat}_k"].div(totals[f"{stat}_e"].where(totals[f"{stat}_e"].gt(0)))
@@ -235,8 +271,11 @@ def main():
                 "preseason": [forecasts[pid][stat][0] for stat in ALL_STATS],
                 "updated": [forecasts[pid][stat][1] for stat in ALL_STATS],
             }
+            if pid in fallback:
+                ratings_players[pid]["fallback"] = fallback[pid]
         ratings_names[team][name] = pid
-    print(f"Ratings stats: {len(ratings_players)} players across {len(ratings_names)} teams", flush=True)
+    print(f"Ratings stats: {len(ratings_players)} players across {len(ratings_names)} teams "
+          f"({len(fallback)} with a Division I prior)", flush=True)
     updated = Counter(row["stat"] for row in forecast_rows if row["status"] == "updated")
     print("Players with observed evidence by stat:", dict(updated), flush=True)
     payload = {

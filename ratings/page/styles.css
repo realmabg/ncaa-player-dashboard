@@ -1,8 +1,11 @@
 /* Ratings overrides for the shared dashboard leaderboard styles. */
 #atlas-shell:has(#ratings-tab.active) { min-height: 640px; }
 #ratings-tab.tab-panel.active { overflow-y: auto; }
-#ratings-tab .triton-table { min-width: 460px; }
-#ratings-tab .triton-table th { position: static; }
+#ratings-tab .triton-table {
+  min-width: 460px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
 #ratings-tab .triton-table tbody tr { cursor: default; }
 #ratings-tab .control-label {
   display: block;
@@ -24,11 +27,17 @@
 }
 
 #ratings-tab .triton-table-card {
+  --ratings-table-height: clamp(20rem, 55vh, 42rem);
+  --ratings-divider: color-mix(in srgb, var(--rule-2) 85%, var(--ink-2));
   background: var(--bg);
   border-color: var(--rule);
+  max-height: var(--ratings-table-height);
+  overflow: auto;
 }
 
 #ratings-tab .triton-table th {
+  z-index: 3;
+  top: 0;
   background: var(--bg-2);
   color: var(--ink-2);
   letter-spacing: .07em;
@@ -54,20 +63,97 @@
   --ratings-row: var(--bg-2);
 }
 
-#ratings-tab .triton-table .ratings-player-column {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  box-shadow: 1px 0 var(--rule-2);
+#ratings-tab .ratings-table--frozen {
+  --rank-width: 38px;
+  --player-width: clamp(140px, 14vw, 240px);
+  --team-width: clamp(85px, 9vw, 125px);
+  --epm-width: 94px;
+  width: max-content;
 }
 
-#ratings-tab td.ratings-player-column {
+#ratings-tab .ratings-table--frozen th {
+  height: 40px;
+  white-space: nowrap;
+}
+
+#ratings-tab .ratings-table--frozen td {
+  height: 68px;
+}
+
+#ratings-tab .ratings-table--frozen :is(th, td):nth-child(-n+4) {
+  position: sticky;
+  box-sizing: border-box;
+  width: var(--frozen-width);
+  min-width: var(--frozen-width);
+  max-width: var(--frozen-width);
+  inset-inline-start: var(--frozen-offset);
+}
+
+#ratings-tab .ratings-table--frozen td:nth-child(-n+4) {
+  z-index: 2;
   background: var(--ratings-row);
+}
+
+#ratings-tab .ratings-table--frozen th:nth-child(-n+4) {
+  z-index: 4;
+}
+
+#ratings-tab .ratings-table--frozen :is(th, td):nth-child(1) {
+  --frozen-width: var(--rank-width);
+  --frozen-offset: 0px;
+}
+
+#ratings-tab .ratings-table--frozen :is(th, td):nth-child(2) {
+  --frozen-width: var(--player-width);
+  --frozen-offset: var(--rank-width);
+}
+
+#ratings-tab .ratings-table--frozen :is(th, td):nth-child(3) {
+  --frozen-width: var(--team-width);
+  --frozen-offset: calc(var(--rank-width) + var(--player-width));
+}
+
+#ratings-tab .ratings-table--frozen :is(th, td):nth-child(4) {
+  --frozen-width: var(--epm-width);
+  --frozen-offset: calc(var(--rank-width) + var(--player-width) + var(--team-width));
+  padding-inline-end: 1rem;
+}
+
+#ratings-tab .ratings-table--frozen .triton-table-player,
+#ratings-tab .ratings-table--frozen .ratings-team-column,
+#ratings-tab .ratings-table--frozen .ratings-player-sample {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 600px) {
+  #ratings-tab .ratings-table--frozen {
+    --rank-width: 32px;
+    --player-width: 116px;
+    --team-width: 70px;
+    --epm-width: 68px;
+  }
+
+  #ratings-tab .ratings-table--frozen :is(th, td):nth-child(-n+4) {
+    padding-inline: .45rem;
+  }
+}
+
+#ratings-tab .triton-table th.ratings-impact-column,
+#ratings-tab .ratings-table--frozen th:nth-child(n+5) {
+  text-align: right;
 }
 
 #ratings-tab .triton-table-player {
   color: var(--ink);
   font-weight: 700;
+}
+
+#ratings-tab .ratings-player-sample {
+  margin-top: .2rem;
+  color: var(--ink-2);
+  font-size: .675rem;
+  font-variant-numeric: tabular-nums;
 }
 
 #ratings-tab .ratings-team-column {
@@ -82,15 +168,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-#ratings-tab .ratings-stat-cell:nth-child(4),
-#ratings-tab .ratings-stat-cell:nth-child(5),
-#ratings-tab .triton-table th:nth-child(4),
-#ratings-tab .triton-table th:nth-child(5) {
-  background: color-mix(in srgb, var(--bg-2) 65%, var(--ratings-row, var(--bg)));
+#ratings-tab .triton-table .ratings-impact-column,
+#ratings-tab .ratings-table--frozen td.ratings-impact-column:nth-child(4) {
+  background: color-mix(in srgb, var(--bg-2) 35%, var(--ratings-row, var(--bg-2)));
 }
 
-#ratings-tab .ratings-stat-cell:nth-child(4) .ratings-stat-value,
-#ratings-tab .ratings-stat-cell:nth-child(5) .ratings-stat-value {
+#ratings-tab .triton-table .ratings-impact-border {
+  border-inline-end: 2px solid var(--ratings-divider, var(--rule-2));
+}
+
+#ratings-tab .ratings-table--frozen td:nth-child(4) .ratings-stat-value {
   color: var(--accent);
 }
 
@@ -115,17 +202,8 @@
 #ratings-tab .ratings-percentile.high { color: var(--pos-gf); }
 #ratings-tab .ratings-percentile.low { color: #f28b8b; }
 
-#ratings-tab .ratings-stat-cell:has(.ratings-percentile.high) {
-  background: color-mix(in srgb, var(--pos-gf) 14%, var(--ratings-row));
-}
-
-#ratings-tab .ratings-stat-cell:has(.ratings-percentile.low) {
-  background: color-mix(in srgb, #f28b8b 14%, var(--ratings-row));
-}
-
 #ratings-tab td.ratings-skill-cell {
-  min-width: 124px;
-  padding-block: .8rem;
+  min-width: 118px;
 }
 
 #ratings-tab .ratings-skill-cell .ratings-stat-value {
@@ -134,22 +212,26 @@
   text-align: right;
 }
 
+#ratings-tab .ratings-skill-cell .ratings-stat-missing {
+  color: var(--ink-2);
+}
+
 #ratings-tab .ratings-stat-details {
   display: flex;
   align-items: flex-end;
   min-height: 1.15em;
-  gap: .75rem;
+  gap: .35rem;
   font-size: var(--ratings-secondary-size);
   line-height: 1.15;
   white-space: nowrap;
 }
 
 #ratings-tab .ratings-projection {
-  color: var(--ink-2);
-  text-align: center;
+  color: var(--ink);
+  font-weight: 600;
 }
 #ratings-tab .ratings-projection-label {
-  display: block;
+  color: var(--ink-2);
   font-size: .6875rem;
 }
 #ratings-tab .ratings-stat-details .ratings-percentile {

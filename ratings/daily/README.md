@@ -1,4 +1,4 @@
-# Daily BPM and RAPM
+# Daily BPM, RAPM, and EPM
 
 The data job runs at 7:30 a.m. Pacific on the default branch. A pull request
 runs a calculation without a database connection. Production runs require
@@ -27,7 +27,10 @@ by two sources, validates the resulting box, and records the votes.
 When two complete boxes pass validation and the available evidence does
 not settle the disagreement, the job includes the NCAA box in BPM. The
 audit records the default and disputed fields and keeps the game open
-for review and retry. Games still need a validated box and resolved final
+for review and retry. When the records agree on a matched player's points
+but leave a minutes gap of at least five unresolved, the snapshot omits that
+player's BPM, BPM minutes, and EPM until the dispute is resolved. Games
+still need a validated box and resolved final
 score to count. RAPM can fall back
 to replaying ESPN starters and substitutions when the NCAA lineup feed
 has no valid game. The replay keeps an and-one free throw with its basket
@@ -37,11 +40,20 @@ replayed time when the player ID and points also agree. The audit records
 the corroborating NCAA source. Verified school substitution times can
 also corroborate a replay, and historical corrections ship with the code.
 
-`bpm_school_boxes_2027.csv` contains audited official box scores for
-the November 11 backfill. The job checks team scores, player IDs,
+When an identified ESPN box fails to download, an NCAA-only box is
+retried before it can enter a new rating snapshot. A failed retry keeps
+the last accepted revision, and an audited school box can resolve the
+playing time while the ESPN download is unavailable.
+
+`bpm_school_boxes_2027.csv` contains audited official box scores for the
+2026–27 season, including the November 11 backfill and the follow-up
+minutes audit through November 17. The job checks team scores, player IDs,
 playing time, and counting stats before accepting a school box. When
 both feeds agree on counting stats, verified school minutes can resolve
-a timing dispute while preserving those counts. Rows with an appearance
+a timing dispute while preserving those counts. The job can also use school
+minutes with a validated feed box when the active roster and individual
+scorers agree, keeping any remaining counting-stat disagreement open.
+Rows with an appearance
 rounded to zero in the school box include a play-by-play source for
 the measured seconds.
 Increment `INPUT_RULES_VERSION` when changing validation or source
@@ -70,6 +82,17 @@ RAPM uses the ten players on the floor and a 90-day half-life for game
 weights. It fits observed scoring with ridge regularization centered at
 zero. The output reports actual possession counts.
 
+EPM runs the same lineup regression with a BPM prior. The net BPM prior is
+split evenly between offense and defense for the fit, and the two fitted
+effects are summed and reported in points per 100 possessions. Players are
+matched by team and NCAA player ID. Lineup players without a BPM match use
+a zero prior in the regression. Published EPM requires both inputs for the
+player. The player value is stored in snapshot details and the coverage
+records how many players received a rating. The first version uses the
+existing RAPM penalty and recency weights. The use of a statistical prior
+follows the general approach described in the
+[Dunks & Threes methodology](https://dunksandthrees.com/about/epm).
+
 The model reads accepted revisions from Supabase and publishes the snapshot
 and player rows together in one transaction. The snapshot includes the
 input revisions, coverage counts, model version, and each metric's cutoff.
@@ -88,6 +111,46 @@ select through_date, coverage
 from ratings.snapshots
 order by through_date desc
 limit 1;
+```
+
+## Fallback source review
+
+When the SportsDataverse box or possessions are missing or unusable, the daily
+job can publish independently validated ESPN or official athletics game-book
+inputs. School game books must match the game date, teams, final score and
+NCAA player IDs. School play-by-play must also reconcile individual scoring,
+playing time and possession counts before it can enter RAPM.
+
+Game-book URLs can be supplied by ESPN event ID in
+`school_gamebooks_<season>.csv`. For schools in `school_gamebook_sites.csv`,
+the job also looks for a matching box-score link on the official schedule.
+The reader accepts structured and classic SIDEARM game books. An audited
+school name variant can be recorded in `school_player_aliases_<season>.csv`
+with its roster ID, jersey and source. The variant is used while the current
+NCAA roster confirms the team, ID and jersey.
+
+For a player verified in the official game book and absent from the current
+NCAA roster, a reviewed source ID can be recorded in `rapm_repairs.py`. When
+the NCAA roster later identifies that player by a unique same-team name, the
+daily job uses the NCAA ID for both source comparison and the season fit.
+
+The existing 7:30 a.m. Pacific workflow fetches the current SportsDataverse
+exports and revisits due fallback games every day. Accepted fallback rows
+have `sportsdataverse_review=pending` in their evidence. Review compares
+player IDs, playing time and box counts for BPM, and period, offensive and
+defensive lineups, points and possession counts for RAPM. Agreement records a
+verified primary revision. Missing inputs or disagreements retain the
+accepted fallback and keep the review open. The review evidence identifies
+the box-score fields or example possessions that differed.
+
+Use `ratings.open_review_queue` to see per-game status:
+
+```sql
+select game_date, game_key, metric, evidence->>'sportsdataverse_review' as source_review,
+       evidence->'sportsdataverse_differences' as differences
+from ratings.open_review_queue
+where evidence->>'sportsdataverse_review' in ('pending', 'conflict')
+order by game_date desc, game_key, metric;
 ```
 
 ## Dashboard CSV

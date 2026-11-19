@@ -7,6 +7,14 @@ eligible events and opportunities through the cutoff. Percentiles compare
 actual values across the full Ratings snapshot before the page's filters,
 with lower turnovers and fouls ranking higher.
 
+Players without an eligible prior Division I profile and verified players on
+current Division I teams outside the fitted model's school registry get a
+Ratings estimate starting from the mean of the eligible preseason forecasts.
+The estimate uses the same production exposure scales and recency weights to incorporate
+their season-to-date games. The table labels these estimates **Est.** and
+labels player-specific forecasts **Proj.** A shooting percentage without
+attempts shows a dash for the actual and still displays the forecast.
+
 Run from the dashboard repository root using the forecasting workspace's
 Python environment and a fresh audit directory:
 

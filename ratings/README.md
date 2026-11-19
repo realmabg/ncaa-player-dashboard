@@ -2,16 +2,22 @@
 
 | Folder | What lives there |
 | --- | --- |
-| [daily/](daily/) | Daily BPM and RAPM calculations, game validation and repairs, Supabase SQL, and CSV export and publishing. |
+| [daily/](daily/) | Daily BPM, RAPM, and EPM calculations, game validation and repairs, Supabase SQL, and CSV export and publishing. |
 | [projections/](projections/) | The 18-stat forecast export, player matching, and the snapshot used by the site. |
 | [page/](page/) | The Ratings table, filters, conference list, and styles. |
 
-**BPM and RAPM refresh daily.** At 7:30 a.m. Pacific, the
+**BPM, RAPM, and EPM refresh daily.** At 7:30 a.m. Pacific, the
 [GitHub Actions workflow](../.github/workflows/daily-rapm.yml) validates new
 games and retries missing inputs. It recalculates the ratings, publishes the
-snapshot in Supabase, then exports both ratings to one `player-ratings.csv`
+snapshot in Supabase, then exports the ratings to one `player-ratings.csv`
 on the `ratings-data` branch. The page fetches that CSV when the dashboard
 session starts. Daily ratings updates do not require rebuilding the website.
+
+**Estimated Plus-Minus (EPM)** uses the dashboard's BPM as the starting point
+for its lineup regression. It measures net points per 100 possessions and
+requires both box-score and lineup data for the player. Click the EPM column
+header to rank by it. The percentile is based on all players in that snapshot
+with an EPM value.
 
 The **UCSD Lineup Predictor** reads that same CSV on page load and shows the
 cutoff for each metric. The season slider blends 2025–26 and 2026–27 within

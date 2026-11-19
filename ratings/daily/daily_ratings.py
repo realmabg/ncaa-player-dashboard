@@ -1,4 +1,4 @@
-"""Ingest game data, recheck gaps, and publish BPM/RAPM from stored inputs."""
+"""Ingest game data, recheck gaps, and publish BPM, RAPM, and EPM."""
 import argparse
 import csv
 import hashlib
@@ -21,17 +21,22 @@ from player_ratings import (FEEDS, RAPM_HALF_LIFE_DAYS, RELEASES, ROOT, download
 from rapm_repairs import MISSING_ROSTER_PLAYERS, expected_score
 from rebuild_espn_rapm import ESPN_NAME_VARIANTS, ESPN_ROSTER_JERSEYS, espn_game, replay
 import ratings_store as store
+from school_gamebooks import (candidate_urls, fetch_html, gamebook_urls, parse_gamebook,
+                              school_aliases, school_gamebook, school_possessions, school_schedules)
 
 # Increment INPUT_RULES_VERSION when validation, source selection or curated
 # corrections change. The next successful run revalidates stored games.
-INPUT_RULES_VERSION = 8
-MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
-                 f"+inputs-v{INPUT_RULES_VERSION}")
+INPUT_RULES_VERSION = 9
+INPUT_MODEL_VERSION = (f"bpm-college-roster-v2+rapm-ridge-2000-decay-{RAPM_HALF_LIFE_DAYS}d-v2"
+                       f"+inputs-v{INPUT_RULES_VERSION}")
+MODEL_VERSION = INPUT_MODEL_VERSION + "+epm-bpm-prior-v1"
 
 NCAA = "https://stats.ncaa.org/contests"
 # The NCAA catalog carries an old and a corrected contest for this game.
 SUPERSEDED_CONTESTS = {"6638547": ("6670672", "401920378")}
 VERIFIED_FINALS = {
+    "401925079": ({"627284": 84, "627537": 83},
+                  "https://nsudemons.com/sports/mens-basketball/stats/2026-27/little-rock/boxscore/14760"),
     "401920887": ({"627454": 62, "627586": 68},
                   "https://shupirates.com/sports/mens-basketball/stats/2026-27/charlotte/boxscore/11645"),
     "401925631": ({"627479": 54, "627295": 56},
@@ -55,6 +60,7 @@ NCAA_BOX_ALIASES = {
     ("627563", "SAM.SIMMONS"): "12151923",
 }
 MINUTES_COLUMN = 8
+MATERIAL_MINUTES_DIFFERENCE = 5
 BOX_VOTE_COLUMNS = dict(BOX_COLUMNS, minutes=MINUTES_COLUMN)
 # Verified final stints that the box scores rounded to zero or omitted.
 FINAL_STINT_SECONDS = {
@@ -353,19 +359,24 @@ def restore_final_stints(rows, event, observations, roster, game, teams, neutral
     return valid_box(updated, game, teams), restored
 
 
-def school_minutes_with_feed_counts(official, candidates, game, teams):
-    """Use the agreed feed counts when only the school minutes are needed."""
-    ncaa, espn = candidates.get("ncaa"), candidates.get("espn")
-    if not ncaa or not espn or box_conflicts(ncaa, espn, compare_minutes=False):
-        raise ValueError("No feed corroborates all school counting stats")
-    by_player = {(row[47], row[51]): row for row in ncaa}
+def school_minutes_with_feed_counts(official, feed, game, teams):
+    """Use school playing time only when both boxes cover the same players and scorers."""
+    by_player = {(row[47], row[51]): row for row in feed}
     official_players = {(row[47], row[51]) for row in official}
     active = {player for player, row in by_player.items() if row[8] > 0}
-    if not active <= official_players or not official_players <= by_player.keys():
+    if not active <= official_players:
         raise ValueError("School box and feeds have different player rows")
     resolved = []
     for row in official:
-        count_row = by_player[row[47], row[51]].copy()
+        count_row = by_player.get((row[47], row[51]))
+        if count_row is None:
+            if row[MINUTES_COLUMN] > 0.5 or any(row[column] for column in BOX_COLUMNS.values()):
+                raise ValueError("School box reports a player missing from the feed")
+            resolved.append(row)
+            continue
+        if count_row[BOX_COLUMNS["points"]] != row[BOX_COLUMNS["points"]]:
+            raise ValueError("School box and feed disagree on player points")
+        count_row = count_row.copy()
         count_row[MINUTES_COLUMN] = row[MINUTES_COLUMN]
         resolved.append(count_row)
     return valid_box(resolved, game, teams)
@@ -392,6 +403,16 @@ def box_conflicts(first, second, *, compare_minutes=True):
 
 def box_values_agree(stat, first, second):
     return abs(first - second) <= 1 if stat == "minutes" else first == second
+
+
+def box_minutes_disputes(ncaa_rows, espn_rows):
+    ncaa, espn = ({(row[47], row[51]): row for row in rows} for rows in (ncaa_rows, espn_rows))
+    return [
+        [team, player] for team, player in sorted(ncaa.keys() & espn.keys())
+        if ncaa[team, player][BOX_COLUMNS["points"]] == espn[team, player][BOX_COLUMNS["points"]]
+        and abs(ncaa[team, player][MINUTES_COLUMN] - espn[team, player][MINUTES_COLUMN])
+        >= MATERIAL_MINUTES_DIFFERENCE
+    ]
 
 
 def school_vote_agrees(stat, feed, school):
@@ -454,7 +475,11 @@ def replay_minutes(summary, event):
 def decision(rows, evidence, stamp, *, reason=None, excluded=0, review=False):
     if rows:
         status = "accepted_with_exclusions" if excluded or review else "accepted"
-        revision = hashlib.sha256(json.dumps(rows, sort_keys=True, allow_nan=False).encode()).hexdigest()
+        minutes_disputes = evidence.get("minutes_disputes")
+        payload = [rows, minutes_disputes] if minutes_disputes else rows
+        if evidence.get("sportsdataverse_review"):
+            payload = [payload, evidence["sportsdataverse_review"], evidence.get("selected")]
+        revision = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
     else:
         status = "needs_review" if review else "retry"
         revision = None
@@ -464,8 +489,96 @@ def decision(rows, evidence, stamp, *, reason=None, excluded=0, review=False):
                 if status != "accepted" else None)
 
 
-def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
+def rapm_inputs(rows):
+    return Counter((period, tuple(sorted(tuple(p) for p in lineup[:5])),
+                    tuple(sorted(tuple(p) for p in lineup[5:])), points)
+                   for period, _, lineup, points, _ in rows)
+
+
+def rapm_comparison(fallback, primary):
+    def examples(rows):
+        return [{"period": period, "offense": offense, "defense": defense, "points": points, "count": count}
+                for (period, offense, defense, points), count in sorted(rows.items())[:5]]
+
+    before, after = rapm_inputs(fallback), rapm_inputs(primary)
+    unmatched_fallback, unmatched_primary = before - after, after - before
+    if not unmatched_fallback and not unmatched_primary:
+        return {}
+    return {"fallback_only_count": sum(unmatched_fallback.values()),
+            "primary_only_count": sum(unmatched_primary.values()),
+            "fallback_examples": examples(unmatched_fallback),
+            "primary_examples": examples(unmatched_primary)}
+
+
+def native_roster_ids(rows):
+    names = unique(((row["team_id"], key(name)), row["player_id"])
+                   for row in rows if row["player_id"].isdigit()
+                   for name in (row["name"], row["clean_name"], row["player"]) if name)
+    return {(team, provisional): native
+            for (team, name), (provisional, _) in MISSING_ROSTER_PLAYERS.items()
+            if (native := names.get((team, key(name))))}
+
+
+def canonical_input_rows(metric, rows, native_ids, team_ids):
+    if not native_ids:
+        return rows
+    canonical = []
+    if metric == "bpm":
+        for original in rows:
+            row = list(original)
+            player = native_ids.get((team_ids.get(row[47]), row[51].removeprefix("ncaa:")))
+            if player is not None:
+                row[51] = f"ncaa:{player}"
+            canonical.append(row)
+    else:
+        for period, clock, lineup, points, names in rows:
+            lineup = [(team, native_ids.get((team, player), player)) for team, player in lineup]
+            canonical.append([period, clock, lineup, points, names])
+    return canonical
+
+
+def verify_sportsdataverse(metric, attempt, primary, previous, stamp, *, native_ids=None, team_ids=None):
+    """Keep the accepted fallback until a primary revision agrees with it."""
+    if previous is not None and previous["evidence"].get("sportsdataverse_review") != "pending":
+        if primary is not None:
+            return attempt
+        return decision([], attempt["evidence"], stamp,
+                        reason="SportsDataverse temporarily unavailable; retaining accepted primary data")
+    if previous is None:
+        if not attempt["rows"] or primary is not None:
+            return attempt
+        evidence = dict(attempt["evidence"], sportsdataverse_review="pending")
+        if attempt["reason"]:
+            evidence["fallback_validation_reason"] = attempt["reason"]
+        return decision(attempt["rows"], evidence, stamp, review=True, excluded=attempt["excluded"],
+                        reason="Fallback input accepted; awaiting SportsDataverse verification")
+
+    evidence = dict(attempt["evidence"], fallback_revision=previous["revision"],
+                    fallback_source=previous["evidence"].get("selected"))
+    if primary is None:
+        # A source temporarily disappearing must not replace the accepted fallback.
+        return decision([], dict(evidence, sportsdataverse_review="pending"), stamp, review=True,
+                        reason="Awaiting validated SportsDataverse input")
+    prior_rows = canonical_input_rows(metric, previous["rows"], native_ids, team_ids)
+    if metric == "bpm":
+        differences = box_conflicts(prior_rows, primary["rows"])
+    else:
+        differences = rapm_comparison(prior_rows, primary["rows"])
+    if differences:
+        return decision([], dict(evidence, sportsdataverse_review="conflict",
+                                 sportsdataverse_differences=differences), stamp, review=True,
+                        reason="SportsDataverse and accepted fallback disagree")
+    verified = dict(primary["evidence"], sportsdataverse_review="verified",
+                    fallback_revision=previous["revision"], fallback_source=evidence["fallback_source"])
+    return decision(primary["rows"], verified, stamp, excluded=primary["excluded"],
+                    reason=primary["reason"])
+
+
+def collect(inputs, scratch, season, cutoff, dates, previous, stamp, *, source_reviews=None):
+    source_reviews = source_reviews or {}
     school_boxes = load_school_boxes(season)
+    school_urls = gamebook_urls(season)
+    schedules = school_schedules()
     teams, raw, games, sources, scores, known, ids, aliases = catalog(
         inputs, scratch, season, cutoff, dates, previous)
     ncaa_rows = defaultdict(list)
@@ -503,6 +616,9 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
     ))
     jersey_ids = roster_jersey_ids(roster_rows)
     roster_by_id = {(r["team_id"], r["player_id"]): r for r in roster_rows}
+    school_player_ids = school_aliases(season, roster_rows)
+    native_ids = native_roster_ids(roster_rows)
+    team_ids_by_name = unique((name, team) for team, name in teams.items())
     reviewed_ids = {}
     for (club, name), (player, espn_jersey, _) in ESPN_NAME_VARIANTS.items():
         team = aliases.get(club)
@@ -563,8 +679,17 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
         urls = list({s["url"] for s in sources[gid]})
         evidence = {"source_urls": sorted(urls), "final_scores": scores[gid]}
         if score_conflict(gid):
-            yield game, sources[gid], {metric: decision([], evidence, stamp,
-                    reason="NCAA and ESPN final scores disagree", review=True) for metric in ("bpm", "rapm")}
+            metrics = {}
+            for metric in ("bpm", "rapm"):
+                prior = source_reviews.get((gid, metric))
+                conflict = evidence
+                if prior and prior["evidence"].get("sportsdataverse_review") == "pending":
+                    conflict = dict(evidence, sportsdataverse_review="conflict",
+                                    fallback_revision=prior["revision"],
+                                    sportsdataverse_differences={"final_scores": scores[gid]})
+                metrics[metric] = decision([], conflict, stamp,
+                    reason="NCAA and ESPN final scores disagree", review=True)
+            yield game, sources[gid], metrics
             continue
         source_ids = {s["provider"]: s["provider_game_id"] for s in sources[gid]}
         event = source_ids.get("espn")
@@ -596,6 +721,40 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
                 candidates["ncaa"] = valid_box(unvalidated["ncaa"], game, teams)
             except (KeyError, TypeError, ValueError) as error:
                 errors["ncaa"] = str(error)
+        school_lineups = None
+        school_url = None
+        if gid not in observations or not candidates:
+            for url in candidate_urls(game, teams, school_urls.get(event, ()), schedules):
+                evidence.setdefault("school_gamebook_urls", []).append(url)
+                try:
+                    cache = scratch / f"school-{hashlib.sha256(url.encode()).hexdigest()}.html"
+                    if cache.exists():
+                        html = cache.read_text(encoding="utf-8")
+                    else:
+                        html = fetch_html(url)
+                        cache.write_text(html, encoding="utf-8")
+                    book = parse_gamebook(html, neutral)
+                    school_rows, mapped, clubs, final = school_gamebook(
+                        book, game, teams, player_ids, jersey_ids, roster, school_player_ids)
+                    school_box_rows = valid_box(
+                        [box_row(game, team, name, f"ncaa:{player}", minutes, stats, book["isNeutral"], teams)
+                         for team, name, player, minutes, stats in school_rows], game, teams)
+                except (OSError, KeyError, TypeError, ValueError) as error:
+                    errors["official_school_gamebook"] = str(error)
+                    continue
+                if not candidates:
+                    candidates["official_school_gamebook"] = school_box_rows
+                if gid not in observations:
+                    try:
+                        school_lineups = school_possessions(book, mapped, clubs, final, roster, player_ids,
+                                                           event=event or "")
+                    except (KeyError, TypeError, ValueError) as error:
+                        evidence["school_play_by_play_error"] = str(error)
+                school_url = url
+                sources[gid].append(dict(provider="official_school_gamebook", provider_game_id=url, url=url))
+                evidence["source_urls"] = sorted(set(evidence["source_urls"]) | {url})
+                if gid in observations or school_lineups is not None:
+                    break
         conflicts = box_conflicts(*candidates.values()) if len(candidates) == 2 else []
         reported_conflicts = conflicts
         school = SCHOOL_BOX_EVIDENCE.get(event)
@@ -613,6 +772,7 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
                 majority = {"url": url, "error": str(error)}
         minutes_review = None
         replay_used = False
+        timing_verified = False
         if summary and neutral is not None and (conflicts or not candidates):
             try:
                 played_minutes = replay_minutes(summary, event)
@@ -631,15 +791,20 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
                 if not ncaa_candidate or box_conflicts(ncaa_candidate, replayed_box):
                     candidates["espn"] = replayed_box
                     replay_used = True
+                timing_verified = True
                 minutes_review = "ESPN substitution replay validated the playing time"
                 conflicts = []
             except (KeyError, TypeError, ValueError) as error:
                 minutes_review = str(error)
         chosen = "ncaa" if "ncaa" in candidates and not replay_used else "espn"
+        if "official_school_gamebook" in candidates:
+            chosen = "official_school_gamebook"
         if "source_majority" in candidates:
             chosen = "source_majority"
         school_review = None
-        if verified_rows and neutral is not None and (conflicts or not candidates):
+        unresolved_counts = False
+        if (verified_rows and neutral is not None
+                and (conflicts or not candidates or "ncaa" in candidates and "espn" not in candidates)):
             url = verified_rows[0]["url"]
             timing_sources = {row["minutes_source"] for row in verified_rows}
             evidence["source_urls"] = sorted(set(evidence["source_urls"]) | {url} | timing_sources)
@@ -673,8 +838,14 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
                         for row in verified_rows if row["minutes_source"] != url
                     ]
                 if not agreeing:
-                    official = school_minutes_with_feed_counts(official, candidates, game, teams)
-                    school_review.update(counting_stats_confirmed_by=["ncaa", "espn"],
+                    if chosen not in candidates:
+                        raise ValueError("No complete feed box to combine with school minutes")
+                    official = school_minutes_with_feed_counts(official, candidates[chosen], game, teams)
+                    counts_agree = ("ncaa" in candidates and "espn" in candidates
+                                    and not box_conflicts(candidates["ncaa"], candidates["espn"], compare_minutes=False))
+                    unresolved_counts = not counts_agree
+                    school_review.update(counting_stats_confirmed_by=["ncaa", "espn"] if counts_agree else [],
+                                         counting_stats_source=chosen,
                                          minutes_source="official_school_box",
                                          school_counting_stats_disagree=True)
                 candidates["official_school_box"] = official
@@ -694,11 +865,15 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
             box_evidence["reported_box_conflicts"] = reported_conflicts
         if replay_used:
             box_evidence["minutes_source"] = "espn_play_by_play"
-        if conflicts:
-            # Both complete boxes already passed validation. Use the NCAA feed
-            # for ties, keeping the disagreement open for a later source vote.
+        minutes_disputes = (box_minutes_disputes(candidates["ncaa"], unvalidated.get("espn", []))
+                            if chosen == "ncaa" and chosen in candidates and not timing_verified else [])
+        if chosen == "ncaa" and download_error:
+            bpm = decision([], box_evidence, stamp, reason="ESPN box unavailable for minutes cross-check")
+        elif conflicts or minutes_disputes:
+            # Keep the validated NCAA box in coverage and flag unresolved player
+            # minutes before the published ratings are fit.
             bpm = decision(candidates["ncaa"], dict(box_evidence, selected="ncaa",
-                           selection_method="validated_source_default"), stamp,
+                           selection_method="validated_source_default", minutes_disputes=minutes_disputes), stamp,
                            reason="Validated NCAA box used pending corroboration", review=True)
         elif chosen in candidates:
             rows = candidates[chosen]
@@ -711,11 +886,18 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
                         box_evidence["stint_source"] = f"https://www.espn.com/mens-college-basketball/playbyplay/_/gameId/{event}"
                 except ValueError as error:
                     box_evidence["short_stint_error"] = str(error)
-            bpm = decision(rows, dict(box_evidence, selected=chosen), stamp)
+            bpm = decision(rows, dict(box_evidence, selected=chosen), stamp, review=unresolved_counts,
+                           reason="School minutes verified; counting stats still under review" if unresolved_counts else None)
         else:
             bpm = decision([], box_evidence, stamp, reason="No validated player box score and venue",
                            review=bool(errors) and not download_error)
-        if gid in observations:
+        if school_lineups is not None:
+            encoded, excluded, minutes_review = school_lineups
+            rapm = decision(encoded, dict(evidence, selected="official_school_gamebook", gamebook_url=school_url,
+                                          school_minutes_review=minutes_review,
+                                          possession_exclusions=excluded), stamp, excluded=excluded,
+                            reason="Some possessions have unresolved lineups or control" if excluded else None)
+        elif gid in observations:
             source, rows, excluded = observations[gid]
             excluded = excluded or (exclusions.get(event, 0) if source == "backfill" else 0)
             encoded = [[period, clock, lineup, pts, [roster[p] for p in lineup]]
@@ -730,7 +912,15 @@ def collect(inputs, scratch, season, cutoff, dates, previous, stamp):
             reason = gap_index.get((game["game_date"], names)) or problem or "No validated possession lineup"
             rapm = decision([], evidence, stamp, reason=reason,
                             review=bool(problem) or "Identity review" in reason or "mismatch" in reason)
-        yield game, sources[gid], dict(bpm=bpm, rapm=rapm)
+        primary_bpm = (decision(candidates["ncaa"], dict(box_evidence, selected="ncaa"), stamp)
+                       if "ncaa" in candidates else None)
+        primary_rapm = rapm if gid in observations and observations[gid][0] == "NCAA" else None
+        yield game, sources[gid], dict(
+            bpm=verify_sportsdataverse("bpm", bpm, primary_bpm, source_reviews.get((gid, "bpm")), stamp,
+                                      native_ids=native_ids, team_ids=team_ids_by_name),
+            rapm=verify_sportsdataverse("rapm", rapm, primary_rapm, source_reviews.get((gid, "rapm")), stamp,
+                                       native_ids=native_ids, team_ids=team_ids_by_name),
+        )
 
 
 def listed_bpm_positions(roster_rows, teams):
@@ -745,22 +935,28 @@ def listed_bpm_positions(roster_rows, teams):
 
 
 def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
-                    dry_run=False, listed_positions):
+                    dry_run=False, listed_positions, native_ids=None):
     dates = {g["game_key"]: g["game_date"] for g in games}
     expected = len(games)
     coverage = {m: dict(expected_games=expected, included_games=0, review_or_retry=0,
-                        games_with_exclusions=0, excluded_input_rows=0)
+                        games_with_exclusions=0, excluded_input_rows=0, pending_sportsdataverse=0)
                 for m in ("bpm", "rapm")}
     manifest, boxes = [], []
+    minutes_disputes = set()
     groups = defaultdict(lambda: [0, 0])
     exposures, appearances, latest, roster = Counter(), defaultdict(set), {}, {}
+    team_ids = unique((name, tid) for tid, name in teams.items())
     for status in statuses:
         metric, gid, rows = status["metric"], status["game_key"], status["rows"]
         if status["status"] != "accepted":
             coverage[metric]["review_or_retry"] += 1
         if not rows:
             continue
+        rows = canonical_input_rows(metric, rows, native_ids, team_ids)
         coverage[metric]["included_games"] += 1
+        evidence = status.get("evidence") or {}
+        if evidence.get("sportsdataverse_review") == "pending":
+            coverage[metric]["pending_sportsdataverse"] += 1
         excluded = status.get("excluded_rows", status.get("excluded", 0))
         if excluded:
             coverage[metric]["games_with_exclusions"] += 1
@@ -768,6 +964,7 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
         manifest.append([gid, metric, status["revision"]])
         if metric == "bpm":
             boxes.extend(rows)
+            minutes_disputes.update(tuple(player) for player in evidence.get("minutes_disputes", []))
             continue
         played = date.fromisoformat(dates[gid])
         weight = rapm_game_weight(played, cutoff)
@@ -784,10 +981,14 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
         raise ValueError("Both metrics need accepted game inputs before publishing")
     bpm, bpm_through = season_bpm(boxes, season, cutoff, include_box_id=True,
                                   listed_positions=listed_positions)
-    rapm = solve_rapm(groups, exposures, appearances, latest, roster, teams)
-    team_ids = unique((name, tid) for tid, name in teams.items())
+    rated_before_review = len(bpm)
+    bpm = {key: row for key, row in bpm.items() if (row["team"], row["box_player_id"]) not in minutes_disputes}
+    withheld = rated_before_review - len(bpm)
     combined = {(team_ids[row["team"]], row["box_player_id"].removeprefix("ncaa:")): row
                 for row in bpm.values()}
+    bpm_by_player = {player: row["bpm"] for player, row in combined.items() if player in exposures}
+    rapm = solve_rapm(groups, exposures, appearances, latest, roster, teams,
+                      bpm_by_player=bpm_by_player)
     for player, row in rapm.items():
         combined.setdefault(player, {}).update(row)
     players = []
@@ -801,11 +1002,13 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
     listed_count = sum((row["team"], row["box_player_id"]) in listed_positions
                        for row in bpm.values())
     coverage["bpm"].update(through_date=bpm_through, listed_position_players=listed_count,
-                           fallback_position_players=len(bpm) - listed_count)
+                           fallback_position_players=len(bpm) - listed_count, minutes_dispute_players=withheld)
     coverage["rapm"]["through_date"] = max(latest.values()).isoformat()
     for counts in coverage.values():
         counts["missing_games"] = counts["expected_games"] - counts["included_games"]
-    print(json.dumps(coverage, sort_keys=True))
+    epm_players = sum("epm" in player["details"] for player in players)
+    snapshot_coverage = dict(coverage, epm={"rated_players": epm_players})
+    print(json.dumps(snapshot_coverage, sort_keys=True))
     summary_path = os.getenv("GITHUB_STEP_SUMMARY")
     if summary_path:
         included = {(gid, metric) for gid, metric, _ in manifest}
@@ -815,11 +1018,15 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
             for metric, counts in coverage.items():
                 missing = counts["missing_games"]
                 print(f"\n- {metric.upper()}: {counts['included_games']}/{expected} accepted, "
-                      f"{missing} missing", file=summary)
+                      f"{missing} missing, {counts['pending_sportsdataverse']} awaiting SportsDataverse",
+                      file=summary)
                 if missing:
                     print(f"::warning::{metric.upper()} coverage through {cutoff}: {missing} games missing")
             print(f"\n- BPM positions: {listed_count} from rosters, "
                   f"{len(bpm) - listed_count} using position 3", file=summary)
+            if withheld:
+                print(f"\n- BPM and EPM withheld for {withheld} players with unresolved playing time", file=summary)
+            print(f"\n- EPM: {epm_players} players with both BPM and lineup data", file=summary)
             if any(c["missing_games"] for c in coverage.values()):
                 print("\n| Game date | Game ID | Metric | Reason |\n|---|---|---|---|", file=summary)
                 for gid, played in sorted(dates.items(), key=lambda game: (game[1], game[0]), reverse=True):
@@ -834,7 +1041,7 @@ def fit_and_publish(season, cutoff, games, statuses, teams, stamp, *,
     if not dry_run:
         store.publish(dict(season=season, through_date=cutoff.isoformat(), published_at=stamp,
                            model_version=MODEL_VERSION,
-                           coverage=coverage, input_manifest=manifest), players)
+                           coverage=snapshot_coverage, input_manifest=manifest), players)
 
 
 def main():
@@ -860,10 +1067,11 @@ def main():
     dates = {cutoff - timedelta(days=offset) for offset in range(3)
              if cutoff - timedelta(days=offset) >= date(season - 1, 7, 1)}
     dates.update(date.fromisoformat(day) for day in due)
-    if args.recheck_season or (last_cutoff and last_version != MODEL_VERSION):
+    last_input_version = (last_version or "").partition("+epm-")[0]
+    if args.recheck_season or (last_cutoff and last_input_version != INPUT_MODEL_VERSION):
         dates.update(date.fromisoformat(game["game_date"]) for game in previous)
-        if last_version != MODEL_VERSION and last_cutoff:
-            print(f"Revalidating stored games after version change: {last_version} → {MODEL_VERSION}")
+        if last_cutoff and last_input_version != INPUT_MODEL_VERSION:
+            print(f"Revalidating stored games after version change: {last_input_version} → {INPUT_MODEL_VERSION}")
     if last_cutoff:
         start = date.fromisoformat(last_cutoff)
         dates.update(start + timedelta(days=i) for i in range(1, (cutoff-start).days+1))
@@ -885,8 +1093,10 @@ def main():
         count = Counter()
         pending_writes = []
         dry_games, dry_statuses = [], []
+        source_reviews = {} if args.dry_run else store.load_source_review_inputs(season, dates)
         for game, sources, metrics in collect(inputs, scratch, season, cutoff, dates,
-                                              {g["game_key"]: g for g in previous}, stamp):
+                                              {g["game_key"]: g for g in previous}, stamp,
+                                              source_reviews=source_reviews):
             count.update(f"{metric}:{result['status']}" for metric, result in metrics.items())
             if args.dry_run:
                 dry_games.append(game)
@@ -902,9 +1112,10 @@ def main():
         print(dict(count))
         games, statuses = (dry_games, dry_statuses) if args.dry_run else store.load_season(season, cutoff)
         teams = {r["id"]: r["team"] for r in feed_rows(inputs, "team_ids", season)}
-        positions = listed_bpm_positions(feed_rows(inputs, "team_rosters", season), teams)
+        roster = list(feed_rows(inputs, "team_rosters", season))
+        positions = listed_bpm_positions(roster, teams)
         fit_and_publish(season, cutoff, games, statuses, teams, stamp.isoformat(),
-                        dry_run=args.dry_run, listed_positions=positions)
+                        dry_run=args.dry_run, listed_positions=positions, native_ids=native_roster_ids(roster))
 
 
 if __name__ == "__main__":

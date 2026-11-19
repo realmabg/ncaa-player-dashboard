@@ -44,6 +44,16 @@ SOURCE_NOTES = {
     "401929002": ("Hawai‘i's official box lists Kajus Mikalauskas, who is absent from the Torvik "
                   "game box. He is included in the replay based on the substitutions.",
                   "https://hawaiiathletics.com/boxscore.aspx?id=31831&path=mbball"),
+    "401921141": ("Elon's game book shows Caleb Zhu's redundant out/in at the same first-half "
+                  "7:03 dead ball, after both free throws.",
+                  "https://elonphoenix.com/sports/mens-basketball/stats/2026-27/south-carolina/boxscore/10017"),
+    "401929176": ("The school log shows Booth's dunk at 17:01 followed by Tate's foul and "
+                  "Booth's single free throw at 17:00, with no intervening possession.",
+                  "https://gobison.com/sports/mens-basketball/stats/2026-27/colorado-state/boxscore/17736"),
+    "401922047": ("User review of the broadcast confirms Longwood controlled the ball before its "
+                  "timeout and inbound, then lost possession on the 1H 2:25 loose-ball foul. "
+                  "Control around the 2H 3:37 foul remains unconfirmed.",
+                  "https://www.espn.com/watch/player/_/id/ac001f9d-e2d2-4ab7-8006-714c7b5991ac"),
 }
 # School box scores round these independently verified replay times.
 VERIFIED_REPLAY_MINUTES = {
@@ -63,6 +73,16 @@ ESPN_NAME_VARIANTS = {
     # https://bamastatesports.com/boxscore.aspx?id=11641&path=mbball
     ("2011", "Terrance Hampton"): ("12154306", "33", None),
     # Same-team aliases checked against roster jerseys and Torvik game boxes.
+    # November 18 aliases also verified against official school game books or rosters.
+    ("236", "Matt Hampton"): ("11956451", "1", 144475),
+    ("119", "Jon Barton"): ("11481891", "5", 134457),
+    ("2344", "Kany Musungay"): ("11955697", "23", 126855),
+    ("71", "Ben Thornbrue"): ("11956454", "4", 144476),
+    ("2473", "Nate Ahner"): ("11637451", "22", 143948),
+    ("21", "Bear Cherry"): ("11954181", "45", 128446),
+    ("309", "Derrick Florence III"): ("11593023", "12", 143893),
+    ("2539", "Abdul Bashir"): ("12154001", "5", 135357),
+    ("2210", "Josh Dalton"): ("12145119", "1", 135123),
     ("2065", "Daniel Perez-Rouzan"): ("12156694", "23", 76244),
     ("2514", "Mike Parrotta"): ("12157957", "24", 145562),
     ("2115", "Daniel James"): ("11485090", "22", None),
@@ -121,6 +141,8 @@ ESPN_NAME_VARIANTS = {
     ("2363", "Asier Miguel"): ("11480682", "11", None),
     # https://towsontigers.com/sports/mens-basketball/stats/2026-27/umbc/boxscore/29798
     ("119", "Stephon Ashley Wright"): ("12195893", "0", None),
+    # https://goislanders.com/sports/mens-basketball/stats/2026-27/rice/boxscore/8574
+    ("357", "Khi Wallace"): ("11590503", "7", None),
     # https://fgcuathletics.com/sports/mens-basketball/roster/2026-27
     ("526", "BB Washington"): ("11479253", "8", None),
     ("526", "CJ Outlaw"): ("11593006", "45", None),
@@ -219,6 +241,42 @@ def espn_game(summary, event=""):
         if (plays[index + 1].kind, plays[index + 1].clock) != ("off_rebound", 888):
             raise ValueError("UC San Diego substitution sequence changed")
         plays[index:index + 2] = reversed(plays[index:index + 2])
+    if event == "401921141":
+        out, sub_in = (i for i, play in enumerate(plays)
+                       if (play.period, play.clock, play.player) == (1, 423, "5458757")
+                       and play.kind in {"in", "out"})
+        if (plays[out].kind != "out" or plays[sub_in].kind != "in"
+                or any(play.clock != 423 or play.kind not in {"in", "out"}
+                       for play in plays[out:sub_in + 1])):
+            raise ValueError("Elon same-clock substitution sequence changed")
+        del plays[sub_in]
+        del plays[out]
+    if event == "401929176":
+        shot, = (i for i, play in enumerate(plays)
+                 if (play.period, play.clock, play.kind, play.team, play.points) == (2, 1021, "shot", "36", 2))
+        basket = plays[shot]
+        following = [play for play in plays[shot + 1:] if (play.period, play.clock) == (2, 1020)]
+        free_throws = [play for play in following if play.kind == "free_throw"]
+        if (len(free_throws) != 1 or free_throws[0].player != basket.player
+                or free_throws[0].team != basket.team or not free_throws[0].last_free_throw
+                or not any(play.kind == "foul" and play.team == "2449" for play in following)
+                or any(play.kind not in {"foul", "in", "out", "free_throw"} for play in following)):
+            raise ValueError("Colorado State and-one sequence changed")
+        plays[shot] = replace(basket, clock=1020)
+    if event == "401922047":
+        foul, = (i for i, play in enumerate(plays)
+                 if (play.period, play.clock, play.kind, play.team, play.player) ==
+                 (1, 145, "foul", "2344", "5061602"))
+        basket, = (i for i, play in enumerate(plays)
+                   if (play.period, play.clock, play.kind, play.team, play.player, play.points) ==
+                   (1, 157, "shot", "2678", "5107351", 2))
+        free_throws = [play for play in plays[foul + 1:] if (play.period, play.clock) == (1, 145)
+                       and play.kind == "free_throw"]
+        if (basket >= foul or any(play.kind not in {"in", "out"} for play in plays[basket + 1:foul])
+                or [(p.team, p.player, p.last_free_throw) for p in free_throws] !=
+                [("2678", "5314582", False), ("2678", "5314582", True)]):
+            raise ValueError("VMI–Longwood first-half loose-ball foul sequence changed")
+        plays[foul] = replace(plays[foul], kind="possession_lost_on_foul")
     moves = {
         "401919759": ((1, 954, "shot", None), (1, 421, "foul", None)),
         "401929003": ((1, 621, "turnover", "foul"),),
@@ -245,9 +303,12 @@ def espn_game(summary, event=""):
     return teams, final, players, plays
 
 
-def memphis_game(html, teams):
-    """Read the school's structured box score and play-by-play payload."""
-    encoded = json.loads(re.search(r'id="__NUXT_DATA__"[^>]*>(.*?)</script>', html, re.S)[1])
+def sidearm_payload(html):
+    """Read the structured game book embedded in a SIDEARM box-score page."""
+    script = re.search(r'id="__NUXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
+    if script is None:
+        raise ValueError("No structured SIDEARM game book")
+    encoded = json.loads(script[1])
 
     def decode(index):
         if index < 0:
@@ -259,8 +320,23 @@ def memphis_game(html, teams):
             return [decode(ref) for ref in value]
         return value
 
-    box = decode(next(i for i, row in enumerate(encoded)
-                      if isinstance(row, dict) and "periodsWithPlays" in row))
+    index = next((i for i, row in enumerate(encoded)
+                  if isinstance(row, dict) and "periodsWithPlays" in row), None)
+    if index is None:
+        raise ValueError("No structured SIDEARM game book")
+    return decode(index)
+
+
+def memphis_game(html, teams):
+    return sidearm_game(sidearm_payload(html), teams)
+
+
+def sidearm_minutes(stats):
+    seconds_played = stats.get("secondsPlayed") or 0
+    return float(stats["minutesPlayed"]) + (0 if seconds_played == "+" else float(seconds_played)) / 60
+
+
+def sidearm_game(box, teams, *, resolve_actor=None):
     clubs = {box["homeTeamId"]: teams["home"], box["visitingTeamId"]: teams["away"]}
     final, players = {}, {}
     for side in ("homeTeam", "visitingTeam"):
@@ -270,10 +346,11 @@ def memphis_game(html, teams):
         for row in block["players"]:
             if not int(row["gamePlayed"]) or row["checkName"] == "TEAM":
                 continue
-            last, first = row["checkName"].split(",", 1)
+            last, first = row["checkName"].rsplit(",", 1)
             players[team, row["checkName"]] = (
                 f"{first} {last}", row["uniform"], bool(int(row["gameStarted"])),
-                float(row["stats"]["minutesPlayed"]), int(row["stats"]["totalPointsScored"]),
+                sidearm_minutes(row["stats"]),
+                int(row["stats"]["totalPointsScored"]),
             )
 
     plays = []
@@ -291,13 +368,15 @@ def memphis_game(html, teams):
             elif action == "REBOUND":
                 kind = {"DEF": "def_rebound", "OFF": "off_rebound", "DEADB": "dead_rebound"}[detail]
             else:
-                kind = {"TURNOVER": "turnover", "FOUL": "foul", "STEAL": "steal",
+                kind = {"TURNOVER": "turnover", "FOUL": "technical" if detail == "TECH" else "foul", "STEAL": "steal",
                         "BLOCK": "block"}.get(action)
             if kind:
                 team = clubs.get(row["teamId"], "")
                 player = row["checkname"]
                 if player == "TEAM":
                     player = ""
+                elif player and resolve_actor and (team, player) not in players:
+                    player = resolve_actor(team, player)
                 plays.append(Play(number, seconds(row["time"]), kind, team, player, points))
         plays.append(Play(number, 0, "end"))
     # The school reports individual attempts. At a dead ball, consecutive
@@ -387,7 +466,8 @@ def replay(plays, players, final):
                     if offense and team != offense:
                         finish()
                     continue
-                if kind not in {"shot", "free_throw", "turnover", "off_rebound", "def_rebound"}:
+                if kind not in {"shot", "free_throw", "turnover", "off_rebound", "def_rebound",
+                                "possession_lost_on_foul"}:
                     continue
                 if team not in lineups:
                     raise ValueError("live play missing team")
@@ -412,7 +492,9 @@ def replay(plays, players, final):
                     p.kind == "free_throw" and p.team == team and p.player == player
                     and p.last_free_throw for p in block[i + 1:]
                 ))
-                if kind in {"turnover", "def_rebound"} or (kind == "shot" and play.points and not and_one) or (
+                if kind in {"turnover", "def_rebound", "possession_lost_on_foul"} or (
+                    kind == "shot" and play.points and not and_one
+                ) or (
                     kind == "free_throw" and play.last_free_throw and play.points
                 ):
                     finish()

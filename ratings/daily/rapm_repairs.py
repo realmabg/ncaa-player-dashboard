@@ -23,6 +23,9 @@ MISSING_ROSTER_PLAYERS = {
     # The Oregon State game book confirms Sutton and Anglo are distinct players.
     # https://osubeavers.com/sports/mens-basketball/stats/2026-27/mississippi-valley-state/boxscore/22930
     ("627392", "CHANCE.SUTTON"): ("espn:5314772", "Chance Sutton"),
+    # LSU's game book and roster confirm #12 before the NCAA roster export lists him.
+    # https://lsusports.net/sports/mb/roster/player/rj-luis-jr
+    ("627249", "RJ LUIS JR."): ("espn:5106035", "RJ Luis Jr."),
 }
 # In these games the named player checked in at the same dead ball as the
 # phantom TEAM substitutions and was absent from the following lineup.

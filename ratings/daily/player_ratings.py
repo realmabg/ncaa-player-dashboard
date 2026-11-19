@@ -213,7 +213,7 @@ def rapm_game_weight(played, cutoff):
 
 
 def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer=None,
-                   extra_backfill=None, fit=True):
+                   extra_backfill=None, fit=True, grouped_possessions=False):
     team_names = {row["id"]: row["team"] for row in feed_rows(directory, "team_ids", season)}
     roster = {
         (row["team_id"], row["player_id"]): row["clean_name"] or row["name"]
@@ -233,10 +233,17 @@ def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer
     shots, substitutions = collect_play_evidence(feed_rows(directory, "pbp", season), cutoff,
                                                   ncaa_date)
     schedule = {row["contest_id"]: row for row in feed_rows(directory, "schedule", season)}
-    games = defaultdict(list)
-    for row in feed_rows(directory, "possessions", season):
-        if ncaa_date(row["game_date"]) <= cutoff:
-            games[row["contest_id"]].append(row)
+    rows_through_cutoff = (row for row in feed_rows(directory, "possessions", season)
+                           if ncaa_date(row["game_date"]) <= cutoff)
+    if grouped_possessions:
+        # Archive exports are contiguous by contest. Read one game at a time
+        # and reject an unexpected repeated block instead of double-counting it.
+        games = groupby(rows_through_cutoff, key=lambda row: row["contest_id"])
+    else:
+        grouped = defaultdict(list)
+        for row in rows_through_cutoff:
+            grouped[row["contest_id"]].append(row)
+        games = grouped.items()
 
     groups = defaultdict(lambda: [0, 0])
     appearances = defaultdict(set)
@@ -264,7 +271,12 @@ def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer
                 exposures[player] += 1
                 last_dates[player] = max(last_dates.get(player, played), played)
 
-    for game_id, rows in games.items():
+    seen_games = set()
+    for game_id, rows in games:
+        if game_id in seen_games:
+            raise ValueError(f"Possession archive repeats contest block {game_id}")
+        seen_games.add(game_id)
+        rows = list(rows)
         first = rows[0]
         game = schedule.get(game_id)
         home, away = first["home_ncaa_team_id"], first["away_ncaa_team_id"]
@@ -369,7 +381,7 @@ def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer
         return roster, team_names
     if not groups:
         raise ValueError(f"No validated D-I lineup games. Exclusions {dict(rejected)}")
-    print(f"RAPM accepted {primary_count}/{len(games)} primary feed games and "
+    print(f"RAPM accepted {primary_count}/{len(seen_games)} primary feed games and "
           f"{len(accepted_dates) - primary_count} backfill games, "
           f"{sum(value[0] for value in groups.values())} possessions. Primary feed exclusions {dict(rejected)}")
 
@@ -377,7 +389,7 @@ def lineup_ratings(directory, season, cutoff, game_status=None, *, game_observer
     return ratings, roster, team_names, max(accepted_dates).isoformat()
 
 
-def solve_rapm(groups, exposures, appearances, last_dates, roster, team_names):
+def solve_rapm(groups, exposures, appearances, last_dates, roster, team_names, *, bpm_by_player=None):
     players = sorted(exposures)
     index = {player: i for i, player in enumerate(players)}
     size = len(players)
@@ -400,22 +412,35 @@ def solve_rapm(groups, exposures, appearances, last_dates, roster, team_names):
         shape=(len(groups), 2 * size + 1),
     )
     penalty = diags(np.r_[np.full(size * 2, math.sqrt(ALPHA)), 0.0], format="csr")
-    solution = lsqr(vstack((design, penalty), format="csr"),
-                    np.r_[target * scale, np.zeros(size * 2 + 1)],
-                    atol=1e-9, btol=1e-9, iter_lim=600)
-    if solution[1] not in (0, 1, 2, 4, 5):
-        raise RuntimeError(f"RAPM regression failed to converge (LSQR status {solution[1]})")
-    effects = solution[0]
+    system = vstack((design, penalty), format="csr")
+
+    def fit(prior, metric):
+        solution = lsqr(system, np.r_[target * scale, penalty @ prior],
+                        atol=1e-9, btol=1e-9, iter_lim=600)
+        if solution[1] not in (0, 1, 2, 4, 5):
+            raise RuntimeError(f"{metric} regression failed to converge (LSQR status {solution[1]})")
+        effects = solution[0]
+        return (effects[:size] + effects[size:2 * size]) * 100
+
+    rapm = fit(np.zeros(size * 2 + 1), "RAPM")
     ratings = {
         player: {
             "player_name": roster[player], "team": team_names[player[0]],
-            "ncaa_player_id": player[1] if not player[1].startswith("bt:") else "",
-            "rapm": (effects[i] + effects[i + size]) * 100,
+            "ncaa_player_id": player[1] if player[1].isdigit() else "",
+            "rapm": rapm[i],
             "rapm_games": len(appearances[player]), "rapm_possessions": exposures[player],
             "rapm_last_game": last_dates[player].isoformat(),
         }
         for i, player in enumerate(players)
     }
+    if bpm_by_player:
+        # BPM is net points per 100 possessions. Split the prior evenly between
+        # offense and defense, in points per possession. Defense is signed
+        # positive for points prevented in the design matrix.
+        half_bpm = np.array([bpm_by_player.get(player, 0.0) for player in players]) / 200
+        epm = fit(np.r_[half_bpm, half_bpm, 0.0], "EPM")
+        for player in bpm_by_player.keys() & ratings.keys():
+            ratings[player]["epm"] = float(epm[index[player]])
     return ratings
 
 
