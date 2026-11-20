@@ -21,7 +21,7 @@ pipeline, the player forecast exporter, and the Ratings page.
 #### Season preview
 
 The Daily Division I preview snapshot workflow builds the 2026–27 CSV at
-8:30 a.m. Pacific once the workflow is on the default branch. It uploads raw
+6:30 a.m. Pacific once the workflow is on the default branch. It uploads raw
 inputs and the validated CSV as separate artifacts. Download the
 `division-i-2027-preview` artifact to `data/current/`, or build it locally
 from the repository root:

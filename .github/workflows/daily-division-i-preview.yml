@@ -2,7 +2,7 @@ name: Daily Division I preview snapshot
 
 on:
   schedule:
-    - cron: '30 8 * * *'
+    - cron: '30 6 * * *'
       timezone: America/Los_Angeles
   workflow_dispatch:
 
