@@ -388,7 +388,8 @@ def _build_output(df: pd.DataFrame, id_prefix: str) -> dict:
     Called by both loaders after they've normalised column names.
     """
     df = df[df["name"].str.len() > 0].copy().reset_index(drop=True)
-    df["id"] = [id_prefix + str(i) for i in range(len(df))]
+    if "id" not in df:
+        df["id"] = [id_prefix + str(i) for i in range(len(df))]
 
     # ── Similarity setup ─────────────────────────────────────────
 
@@ -582,13 +583,14 @@ def load_d1_data(
     id_prefix: str = "d1p",
     transfer_path: str | None = None,
     recruiting_path: str | None = None,
+    snapshot_season: int | None = None,
 ) -> dict:
     """
     Load D-I dataset (mbb_with_pca.csv).
     Remaps column names and rescales percentages to match the shared schema
     expected by app.py helpers.
     """
-    raw = pd.read_csv(csv_path)
+    raw = pd.read_csv(csv_path, dtype={"pid": str})
 
     def n(col):
         return pd.to_numeric(raw.get(col, 0), errors="coerce").fillna(0)
@@ -601,6 +603,13 @@ def load_d1_data(
     # Identity
     df["name"]     = t("player_name")
     df["team"]     = t("team")
+    if snapshot_season is not None:
+        if not t("year").eq(str(snapshot_season)).all():
+            raise ValueError(f"Division I snapshot must contain only season {snapshot_season}")
+        player_ids = t("pid")
+        if not player_ids.str.fullmatch(r"\d+").all() or player_ids.duplicated().any():
+            raise ValueError("Division I snapshot requires unique Torvik player IDs")
+        df["id"] = id_prefix + "torvik-" + player_ids
     df["conf"]     = t("conf")
     df["confName"] = df["conf"].map(D1_CONF_NAMES).fillna(df["conf"])
     if {"pbp_pid", "pbp_join_method", "pbp_join_warning"}.issubset(raw.columns):
@@ -749,4 +758,10 @@ def load_d1_data(
     for col, values in _load_recruiting_tags(recruiting_path, raw).items():
         df[col] = values
 
-    return _build_output(df, id_prefix)
+    output = _build_output(df, id_prefix)
+    if snapshot_season is not None:
+        timestamps = t("snapshot_retrieved_at").unique()
+        if len(timestamps) != 1 or not timestamps[0]:
+            raise ValueError("Division I snapshot requires a single retrieval timestamp")
+        output["retrieved_at"] = pd.to_datetime(timestamps[0], utc=True)
+    return output

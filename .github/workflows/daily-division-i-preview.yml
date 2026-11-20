@@ -1,0 +1,38 @@
+name: Daily Division I preview snapshot
+
+on:
+  schedule:
+    - cron: '30 6 * * *'
+      timezone: America/Los_Angeles
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: division-i-preview
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Download, validate, and build the snapshot
+        run: python scripts/build_division_i_snapshot.py --season 2027
+      - name: Keep the raw Torvik inputs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: division-i-2027-raw
+          path: data/raw/division_i/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v6
+        with:
+          name: division-i-2027-preview
+          path: data/current/division-i-2027.csv
+          if-no-files-found: error

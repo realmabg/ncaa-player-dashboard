@@ -147,7 +147,7 @@ def augment_file(path: Path, lookup: dict[tuple[int, str, str], dict[str, str]])
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-dir", type=Path, default=Path(".."))
-    parser.add_argument("--historical-dir", type=Path, default=Path("historical_comps_output"))
+    parser.add_argument("--historical-dir", type=Path, default=Path("data/historical"))
     parser.add_argument("--start-year", type=int, default=2016)
     parser.add_argument("--end-year", type=int, default=2026)
     args = parser.parse_args()

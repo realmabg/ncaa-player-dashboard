@@ -4,6 +4,7 @@ from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from os import environ
 from pathlib import Path
 import html
 import json
@@ -11,13 +12,29 @@ import math
 import re
 
 from data_engine import (
-    load_data, load_d1_data,
+    load_data,
     POS_COLOR, POS_LABEL, POSITIONS, CLASSES, height_str,
 )
+from pages.division_i.core_v3 import score_current_players
+from pages.division_i.data import load_division_i
+from pages.division_i.view import make_division_i_tab, snapshot_note
+from pages.historical_players.data import (
+    load_historical_neighbors, load_historical_player_index, load_historical_scores,
+)
+from pages.historical_players.view import make_historical_beta_tab
+from pages.triton_zone.scoring import (
+    TRITON_DEFAULT_WEIGHTS, TRITON_SPECIAL_ARCHETYPES, TRITON_SPECIAL_CRITERIA,
+    TRITON_ZONE_METRICS, add_triton_columns, build_triton_spreads,
+    compute_triton_frame, compute_triton_special,
+)
+from pages.triton_zone.view import make_triton_tab
 from ratings.page.ratings_tab import CSV_URL as RATINGS_CSV_URL, ratings_tab_server, ratings_tab_ui
 from ratings.projections.player_projections import lineup_forecast_payload
 
 HERE = Path(__file__).parent
+D1_PREVIEW_SNAPSHOT = environ.get("D1_PREVIEW_SNAPSHOT")
+D1_CURRENT_SEASON = 2027 if D1_PREVIEW_SNAPSHOT else 2026
+D1_SEASON_LABEL = f"{D1_CURRENT_SEASON - 1}–{D1_CURRENT_SEASON % 100:02}"
 BUNDLED_CURRENT_D2_SCHEMA_PATH = HERE / "current_d2_all_players_10mpg_dashboard_schema.csv"
 D2_SCHEMA_RELATIVE_PATH = (
     Path("former_D2_player_comparison")
@@ -28,22 +45,7 @@ D2_SCHEMA_RELATIVE_PATH = (
 )
 LEGACY_D2_PATH = HERE / "d2_data_cleaned.csv"
 CORE_V3_MEMBERSHIPS_PATH = HERE / "core_v3_memberships.csv"
-CORE_V3_UNSTABLE_PATH = HERE / "core_v3_under150_unstable_scores_2026.csv"
-HISTORICAL_NEIGHBORS_RELATIVE_PATHS = {
-    "all": Path("historical_comps_output") / "d1_historical_neighbors_2026_prior_all.csv",
-    "big_west_next_year": (
-        Path("historical_comps_output") / "d1_historical_neighbors_2026_prior_big_west_next_year.csv"
-    ),
-}
-HISTORICAL_SCORE_RELATIVE_PATH = (
-    Path("historical_comps_output") / "d1_historical_category_scores.csv"
-)
-HISTORICAL_CURRENT_SCORE_RELATIVE_PATH = (
-    Path("historical_comps_output") / "d1_historical_current_category_scores_2026.csv"
-)
-HISTORICAL_PLAYER_INDEX_RELATIVE_PATH = (
-    Path("historical_comps_output") / "d1_historical_player_index.csv"
-)
+CORE_V3_UNSTABLE_PATH = HERE / f"core_v3_under150_unstable_scores_{D1_CURRENT_SEASON}.csv"
 HISTORICAL_TABLE_LIMIT = 25
 HISTORICAL_CURRENT_COMP_LIMIT = 5
 HISTORICAL_CURRENT_COMP_MIN_MPG = 10.0
@@ -80,236 +82,19 @@ def resolve_core_v3_unstable_path():
     return CORE_V3_UNSTABLE_PATH if CORE_V3_UNSTABLE_PATH.exists() else None
 
 
-def _csv_variants(relative_path: Path):
-    """The historical comps tables ship gzipped -- plain CSVs of them push the
-    shinylive export past GitHub's 100 MB file limit, so the Pages rebuild
-    cannot commit docs/. pandas reads .csv.gz by extension, so preferring the
-    gzipped sibling is the only change the read sites need; the plain name is
-    still accepted for checkouts that carry the uncompressed files."""
-    return (relative_path.with_suffix(relative_path.suffix + ".gz"), relative_path)
-
-
-def resolve_historical_neighbors_path(pool_key: str = "all"):
-    relative_path = HISTORICAL_NEIGHBORS_RELATIVE_PATHS.get(
-        pool_key, HISTORICAL_NEIGHBORS_RELATIVE_PATHS["all"]
-    )
-    for variant in _csv_variants(relative_path):
-        direct = HERE.parent / variant
-        if direct.exists():
-            return direct
-        for base in (HERE, *HERE.parents):
-            candidate = base / variant
-            if candidate.exists():
-                return candidate
-    return None
-
-
-def _resolve_optional_relative_path(relative_path: Path):
-    for variant in _csv_variants(relative_path):
-        direct = HERE / variant
-        if direct.exists():
-            return direct
-        parent_direct = HERE.parent / variant
-        if parent_direct.exists():
-            return parent_direct
-        for base in (HERE, *HERE.parents):
-            candidate = base / variant
-            if candidate.exists():
-                return candidate
-    return None
-
-
-def resolve_historical_score_path():
-    current_only = _resolve_optional_relative_path(HISTORICAL_CURRENT_SCORE_RELATIVE_PATH)
-    if current_only is not None:
-        return current_only
-    return _resolve_optional_relative_path(HISTORICAL_SCORE_RELATIVE_PATH)
-
-
-def resolve_historical_player_index_path():
-    return _resolve_optional_relative_path(HISTORICAL_PLAYER_INDEX_RELATIVE_PATH)
-
-
-
-
-def load_historical_neighbors(pool_key: str = "all"):
-    path = resolve_historical_neighbors_path(pool_key)
-    if path is None:
-        return pd.DataFrame()
-    df = pd.read_csv(path)
-    text_cols = [
-        "target_player_name",
-        "target_team",
-        "match_player_name",
-        "match_team",
-        "match_conf",
-    ]
-    for col in text_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna("").astype(str).str.strip()
-    return df
-
-
-def load_historical_scores():
-    path = resolve_historical_score_path()
-    if path is None:
-        return pd.DataFrame()
-    df = pd.read_csv(path)
-    text_cols = ["season_player_id", "player_name", "team", "conf"]
-    numeric_cols = [
-        "year",
-        "GP",
-        "mins_per_game",
-        "height_inches",
-        "eFG",
-        "FT_pct",
-        "3P_pct",
-        "3P_per_100_team_pos",
-        "AST_TOV",
-        "AST_pct",
-        "Blk_pct",
-        "DRB_pct",
-        "FTR",
-        "ORB_pct",
-        "Stl_pct",
-        "TOV_pct",
-        "assisted_fg_pct",
-        "personal_fouls_per_40",
-        "rim_assisted_pct",
-        "rim_pct",
-        "rim_share",
-        "mid_pct",
-        "mid_share",
-        "dunk_pct",
-        "dunk_share",
-        "stops_per_40",
-        "three_assisted_pct",
-        "three_share",
-        "usg",
-        "workload_score",
-        "shot_style_score",
-        "spacing_score",
-        "rim_finishing_score",
-        "rebounding_score",
-        "defense_score",
-        "ballhandling_score",
-        "height_score",
-        "workload_grade",
-        "shot_style_grade",
-        "spacing_grade",
-        "rim_finishing_grade",
-        "rebounding_grade",
-        "defense_grade",
-        "ballhandling_grade",
-        "height_grade",
-    ]
-    for col in text_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna("").astype(str).str.strip()
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
-
-
-def load_historical_player_index():
-    path = resolve_historical_player_index_path()
-    if path is None:
-        return pd.DataFrame()
-    df = pd.read_csv(path)
-    text_cols = [
-        "season_player_id",
-        "player_name",
-        "team",
-        "conf",
-        "class",
-        "role",
-        "pos",
-        "archetype",
-        "height",
-    ]
-    numeric_cols = [
-        "year",
-        "GP",
-        "mins_per_game",
-        "pts_per_game",
-        "ast_per_game",
-        "treb_per_game",
-        "bpm",
-        "height_inches",
-        "eFG",
-        "FT_pct",
-        "3P_pct",
-        "3P_per_100_team_pos",
-        "AST_TOV",
-        "AST_pct",
-        "Blk_pct",
-        "DRB_pct",
-        "FTR",
-        "ORB_pct",
-        "Stl_pct",
-        "TOV_pct",
-        "assisted_fg_pct",
-        "personal_fouls_per_40",
-        "rim_assisted_pct",
-        "rim_pct",
-        "rim_share",
-        "mid_pct",
-        "mid_share",
-        "dunk_pct",
-        "dunk_share",
-        "stops_per_40",
-        "three_assisted_pct",
-        "three_share",
-        "usg",
-        "workload_score",
-        "shot_style_score",
-        "spacing_score",
-        "rim_finishing_score",
-        "rebounding_score",
-        "defense_score",
-        "ballhandling_score",
-        "height_score",
-        "workload_grade",
-        "shot_style_grade",
-        "spacing_grade",
-        "rim_finishing_grade",
-        "rebounding_grade",
-        "defense_grade",
-        "ballhandling_grade",
-        "height_grade",
-    ]
-    for col in text_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna("").astype(str).str.strip()
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    if "year" in df.columns:
-        df = df[df["year"].lt(D1_CURRENT_SEASON)].copy()
-    return df
-
-
-
 D2 = load_data(
     str(resolve_current_d2_schema_path()),
     id_prefix="d2p",
     min_mpg=10,
 )
-D1 = load_d1_data(
-    str(HERE / "mbb_with_pca_all_players_2026_with_pbp.csv"),
-    id_prefix="d1p",
-    transfer_path=str(HERE / "transfer_portal_cache.csv"),
-    recruiting_path=str(HERE / "recruiting_rankings_cache.csv"),
-)
+D1 = load_division_i(HERE, snapshot=D1_PREVIEW_SNAPSHOT, season=D1_CURRENT_SEASON)
 D3 = load_data(str(HERE / "d3_data_cleaned.csv"),          id_prefix="d3p")
 HISTORICAL_NEIGHBORS = {
-    "all": load_historical_neighbors("all"),
-    "big_west_next_year": load_historical_neighbors("big_west_next_year"),
+    "all": load_historical_neighbors(D1_CURRENT_SEASON, "all"),
+    "big_west_next_year": load_historical_neighbors(D1_CURRENT_SEASON, "big_west_next_year"),
 }
-D1_CURRENT_SEASON = 2026
-HISTORICAL_SCORES = load_historical_scores()
-HISTORICAL_PLAYER_INDEX = load_historical_player_index()
+HISTORICAL_SCORES = load_historical_scores(D1_CURRENT_SEASON)
+HISTORICAL_PLAYER_INDEX = load_historical_player_index(D1_CURRENT_SEASON)
 
 d2_df         = D2["df"];  d2_conferences = D2["conferences"]
 d2_league_avg = D2["league_avg"];  d2_similar_to = D2["similar_to"]
@@ -536,29 +321,6 @@ def add_archetype_v2_columns(df):
         "archetype_v2_stability_note",
     ]
 
-    if memberships_path is None:
-        for col in ARCHETYPE_V2_ORDER:
-            df[col] = np.nan
-        df["archetype_v2_primary_code"] = pd.Series(pd.NA, index=df.index, dtype="object")
-        df["archetype_v2_primary_label"] = pd.Series(pd.NA, index=df.index, dtype="object")
-        df["archetype_v2_primary_weight"] = pd.Series(np.nan, index=df.index, dtype="float64")
-        df["archetype_v2_secondary_code"] = pd.Series(pd.NA, index=df.index, dtype="object")
-        df["archetype_v2_secondary_label"] = pd.Series(pd.NA, index=df.index, dtype="object")
-        df["archetype_v2_secondary_weight"] = pd.Series(np.nan, index=df.index, dtype="float64")
-        df["archetype_v2_available"] = pd.Series(False, index=df.index, dtype="bool")
-        df["archetype_v2_unstable"] = pd.Series(False, index=df.index, dtype="bool")
-        df["archetype_v2_stability_tier"] = pd.Series(pd.NA, index=df.index, dtype="object")
-        df["archetype_v2_stability_note"] = pd.Series(pd.NA, index=df.index, dtype="object")
-        return
-
-    memberships = pd.read_csv(memberships_path)
-    memberships["name_key"] = memberships["playerName"].map(normalize_lookup_key)
-    memberships["team_key"] = memberships["teamName"].map(normalize_lookup_key)
-    memberships["team_key_robust"] = memberships["teamName"].map(normalize_team_lookup_key)
-    memberships["minutes"] = pd.to_numeric(memberships["minutes"], errors="coerce").fillna(0)
-    memberships = memberships.sort_values("minutes", ascending=False)
-    memberships = memberships.drop_duplicates(["name_key", "team_key"], keep="first").copy()
-
     def finalize_membership_frame(frame, unstable_default=False):
         weight_frame = frame[ARCHETYPE_V2_ORDER].apply(pd.to_numeric, errors="coerce").fillna(0.0)
         frame[ARCHETYPE_V2_ORDER] = weight_frame
@@ -585,6 +347,37 @@ def add_archetype_v2_columns(df):
         if "archetype_v2_stability_note" not in frame.columns:
             frame["archetype_v2_stability_note"] = pd.Series(pd.NA, index=frame.index, dtype="object")
         return frame
+
+    if D1_PREVIEW_SNAPSHOT:
+        current = finalize_membership_frame(score_current_players(df))
+        for col in target_columns:
+            df[col] = current[col].reindex(df.index)
+        for col in ("archetype_v2_available", "archetype_v2_unstable"):
+            df[col] = df[col].eq(True)
+        return
+
+    if memberships_path is None:
+        for col in ARCHETYPE_V2_ORDER:
+            df[col] = np.nan
+        df["archetype_v2_primary_code"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_primary_label"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_primary_weight"] = pd.Series(np.nan, index=df.index, dtype="float64")
+        df["archetype_v2_secondary_code"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_secondary_label"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_secondary_weight"] = pd.Series(np.nan, index=df.index, dtype="float64")
+        df["archetype_v2_available"] = pd.Series(False, index=df.index, dtype="bool")
+        df["archetype_v2_unstable"] = pd.Series(False, index=df.index, dtype="bool")
+        df["archetype_v2_stability_tier"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        df["archetype_v2_stability_note"] = pd.Series(pd.NA, index=df.index, dtype="object")
+        return
+
+    memberships = pd.read_csv(memberships_path)
+    memberships["name_key"] = memberships["playerName"].map(normalize_lookup_key)
+    memberships["team_key"] = memberships["teamName"].map(normalize_lookup_key)
+    memberships["team_key_robust"] = memberships["teamName"].map(normalize_team_lookup_key)
+    memberships["minutes"] = pd.to_numeric(memberships["minutes"], errors="coerce").fillna(0)
+    memberships = memberships.sort_values("minutes", ascending=False)
+    memberships = memberships.drop_duplicates(["name_key", "team_key"], keep="first").copy()
 
     memberships = finalize_membership_frame(memberships, unstable_default=False)
 
@@ -1114,352 +907,8 @@ add_archetype_columns([
     ("D-III", d3_df),
 ])
 
-# ─────────────────────────────────────────────────────────────────────────
-# TRITON ZONE / TRITON WAR
-# ─────────────────────────────────────────────────────────────────────────
-#
-# The coaching staff defined a "Triton Zone": seven statistical targets a
-# player should clear to fit how UCSD wants to play. Triton WAR turns those
-# same seven targets into one 0-100 fit score so the whole country can be
-# ranked by them rather than only split into pass/fail.
-#
-# Each metric is stored in this app on its own scale (3P% as 0-1, TOV% as
-# 0-100, ...), so every metric carries the multiplier that puts it back into
-# the units the staff speaks in -- whole percentage points. Targets and
-# weights below are the defaults; both are adjustable in the tracker tab
-# because the staff expects to keep tuning them (eFG% in particular was added
-# after the fact).
-
-TRITON_ZONE_METRICS = [
-    {
-        "key": "efg",
-        "col": "efg",
-        "label": "eFG%",
-        "long": "Effective FG%",
-        "scale": 100.0,
-        "target": 50.0,
-        "kind": "pct",
-        "higher_is_better": True,
-        "weight": 20.0,
-        "input_min": 35.0,
-        "input_max": 70.0,
-        "step": 0.5,
-    },
-    {
-        "key": "three_pct",
-        "col": "tp",
-        "label": "3PT%",
-        "long": "Three-point percentage",
-        "scale": 100.0,
-        "target": 36.0,
-        "kind": "pct",
-        "higher_is_better": True,
-        "weight": 18.0,
-        "input_min": 25.0,
-        "input_max": 50.0,
-        "step": 0.5,
-    },
-    {
-        "key": "three_rate",
-        "col": "three_share",
-        "label": "3PA/FGA",
-        "long": "Three-point rate",
-        "scale": 100.0,
-        "target": 45.0,
-        "kind": "pct",
-        "higher_is_better": True,
-        "weight": 15.0,
-        "input_min": 10.0,
-        "input_max": 90.0,
-        "step": 1.0,
-    },
-    {
-        "key": "tov_pct",
-        "col": "tov_pct",
-        "label": "TOV%",
-        "long": "Turnover rate (lower is better)",
-        "scale": 1.0,
-        "target": 15.0,
-        "kind": "pct",
-        "higher_is_better": False,
-        "weight": 15.0,
-        "input_min": 5.0,
-        "input_max": 30.0,
-        "step": 0.5,
-    },
-    {
-        "key": "two_pct",
-        "col": "two_pct",
-        "label": "2PT%",
-        "long": "Two-point percentage",
-        "scale": 100.0,
-        "target": 55.0,
-        "kind": "pct",
-        "higher_is_better": True,
-        "weight": 12.0,
-        "input_min": 35.0,
-        "input_max": 75.0,
-        "step": 0.5,
-    },
-    {
-        "key": "drb_pct",
-        "col": "drb_pct",
-        "label": "DRB%",
-        "long": "Defensive rebound rate",
-        "scale": 1.0,
-        "target": 15.0,
-        "kind": "pct",
-        "higher_is_better": True,
-        "weight": 12.0,
-        "input_min": 2.0,
-        "input_max": 35.0,
-        "step": 0.5,
-    },
-    {
-        "key": "orb_pct",
-        "col": "orb_pct",
-        "label": "ORB%",
-        "long": "Offensive rebound rate",
-        "scale": 1.0,
-        "target": 6.0,
-        "kind": "pct",
-        "higher_is_better": True,
-        "weight": 8.0,
-        "input_min": 0.0,
-        "input_max": 20.0,
-        "step": 0.5,
-    },
-]
-TRITON_METRIC_BY_KEY = {metric["key"]: metric for metric in TRITON_ZONE_METRICS}
-TRITON_METRIC_KEYS = [metric["key"] for metric in TRITON_ZONE_METRICS]
-TRITON_DEFAULT_TARGETS = {metric["key"]: metric["target"] for metric in TRITON_ZONE_METRICS}
-TRITON_DEFAULT_WEIGHTS = {metric["key"]: metric["weight"] for metric in TRITON_ZONE_METRICS}
-
-# Special archetypes the staff wants filtered on top of the zone. Each entry
-# is an extra set of gates -- a player still carries a Triton WAR score, the
-# archetype only narrows who is eligible to appear.
-TRITON_SPECIAL_ARCHETYPES = {
-    "stretch_big": {
-        "label": "Stretch Big",
-        "note": "Size that still shoots it: 6'9\" or taller, 34%+ from three on a 40%+ three-point rate.",
-        "criteria": [
-            {
-                "key": "stretch_height",
-                "col": "heightIn",
-                "label": "Height",
-                "scale": 1.0,
-                "target": 81.0,
-                "higher_is_better": True,
-                "kind": "height",
-                "input_min": 72.0,
-                "input_max": 88.0,
-                "step": 1.0,
-            },
-            {
-                "key": "stretch_three_pct",
-                "col": "tp",
-                "label": "3PT%",
-                "scale": 100.0,
-                "target": 34.0,
-                "higher_is_better": True,
-                "kind": "pct",
-                "input_min": 20.0,
-                "input_max": 50.0,
-                "step": 0.5,
-            },
-            {
-                "key": "stretch_three_rate",
-                "col": "three_share",
-                "label": "3PA/FGA",
-                "scale": 100.0,
-                "target": 40.0,
-                "higher_is_better": True,
-                "kind": "pct",
-                "input_min": 10.0,
-                "input_max": 90.0,
-                "step": 1.0,
-            },
-        ],
-    },
-    "shooter": {
-        "label": "3PT Specialist",
-        "note": "Volume shooter: 65%+ of shots from three at better than 35%.",
-        "criteria": [
-            {
-                "key": "shooter_three_rate",
-                "col": "three_share",
-                "label": "3PA/FGA",
-                "scale": 100.0,
-                "target": 65.0,
-                "higher_is_better": True,
-                "kind": "pct",
-                "input_min": 30.0,
-                "input_max": 95.0,
-                "step": 1.0,
-            },
-            {
-                "key": "shooter_three_pct",
-                "col": "tp",
-                "label": "3PT%",
-                "scale": 100.0,
-                "target": 35.0,
-                "higher_is_better": True,
-                "kind": "pct",
-                "input_min": 20.0,
-                "input_max": 50.0,
-                "step": 0.5,
-            },
-        ],
-    },
-}
-TRITON_SPECIAL_CRITERIA = [
-    criterion
-    for archetype in TRITON_SPECIAL_ARCHETYPES.values()
-    for criterion in archetype["criteria"]
-]
-TRITON_SPECIAL_DEFAULT_TARGETS = {
-    criterion["key"]: criterion["target"] for criterion in TRITON_SPECIAL_CRITERIA
-}
-
-# Sub-scores are anchored on the target rather than on a raw percentile, so a
-# player who clears every target always lands in the same place no matter how
-# the rest of the country shoots that year. The spread below only controls how
-# fast a sub-score moves away from the target: one spread past it earns the
-# full 100, one and a half short of it bottoms out at 0.
-TRITON_SUBSCORE_AT_TARGET = 70.0
-TRITON_SPREAD_ABOVE = 1.0
-TRITON_SPREAD_BELOW = 1.5
-TRITON_SCORE_POOL_MIN_MPG = 10.0
-
-
-def _triton_metric_series(df, metric):
-    """Metric values converted into the whole-percentage-point units the staff
-    states targets in (3P% 0-1 becomes 36.0, TOV% is already 15.0)."""
-    values = pd.to_numeric(df.get(metric["col"]), errors="coerce")
-    if values is None:
-        return pd.Series(np.nan, index=df.index, dtype="float64")
-    return values.astype("float64") * float(metric["scale"])
-
-
-def _triton_spread(values):
-    """Robust half-interquantile spread, with a std fallback for thin columns."""
-    clean = pd.to_numeric(values, errors="coerce").dropna()
-    if clean.empty:
-        return 1.0
-    spread = (clean.quantile(0.84) - clean.quantile(0.16)) / 2.0
-    if not np.isfinite(spread) or spread <= 0:
-        spread = float(clean.std(ddof=0))
-    if not np.isfinite(spread) or spread <= 0:
-        return 1.0
-    return float(spread)
-
-
-def build_triton_spreads(df):
-    """One spread per metric, measured once over the rotation-level D-I pool so
-    the scale of a score does not move when the user filters the table."""
-    mpg = pd.to_numeric(df.get("mpg"), errors="coerce")
-    pool = df[mpg.fillna(0) >= TRITON_SCORE_POOL_MIN_MPG] if mpg is not None else df
-    if pool.empty:
-        pool = df
-    return {
-        metric["key"]: _triton_spread(_triton_metric_series(pool, metric))
-        for metric in TRITON_ZONE_METRICS
-    }
-
-
-def triton_subscore(values, target, spread, higher_is_better):
-    """0-100 fit on one metric. Hitting the target is worth 70; a full spread
-    beyond it reaches 100, and one and a half spreads short of it reaches 0.
-    The curve is continuous at the target, so nudging a threshold nudges the
-    score instead of flipping it."""
-    numeric = pd.to_numeric(values, errors="coerce").astype("float64")
-    spread = float(spread) if np.isfinite(spread) and spread > 0 else 1.0
-    z = (numeric - float(target)) / spread
-    if not higher_is_better:
-        z = -z
-    above = TRITON_SUBSCORE_AT_TARGET + (100.0 - TRITON_SUBSCORE_AT_TARGET) * np.clip(
-        z / TRITON_SPREAD_ABOVE, 0.0, 1.0
-    )
-    below = TRITON_SUBSCORE_AT_TARGET * np.clip(1.0 + z / TRITON_SPREAD_BELOW, 0.0, 1.0)
-    scored = np.where(z >= 0, above, below)
-    return pd.Series(np.where(np.isnan(z), np.nan, scored), index=numeric.index, dtype="float64")
-
-
-def compute_triton_frame(df, targets=None, weights=None, spreads=None):
-    """Per-metric values, pass flags and sub-scores plus the weighted Triton WAR
-    for every row of df. Returned as its own frame so callers can either attach
-    the columns or use them for a one-off ranking."""
-    targets = {**TRITON_DEFAULT_TARGETS, **(targets or {})}
-    weights = {**TRITON_DEFAULT_WEIGHTS, **(weights or {})}
-    spreads = spreads or TRITON_METRIC_SPREADS
-
-    out = pd.DataFrame(index=df.index)
-    weighted_total = pd.Series(0.0, index=df.index, dtype="float64")
-    weight_total = 0.0
-    passes = pd.Series(0, index=df.index, dtype="int64")
-    zone = pd.Series(True, index=df.index)
-
-    for metric in TRITON_ZONE_METRICS:
-        key = metric["key"]
-        values = _triton_metric_series(df, metric)
-        target = float(targets.get(key, metric["target"]))
-        sub = triton_subscore(values, target, spreads.get(key, 1.0), metric["higher_is_better"])
-        if metric["higher_is_better"]:
-            ok = values >= target
-        else:
-            ok = values <= target
-        ok = ok.fillna(False)
-        weight = max(0.0, float(weights.get(key, metric["weight"])))
-        out[f"triton_val_{key}"] = values
-        out[f"triton_sub_{key}"] = sub
-        out[f"triton_ok_{key}"] = ok
-        weighted_total = weighted_total.add(sub.fillna(0.0) * weight, fill_value=0.0)
-        weight_total += weight
-        passes = passes + ok.astype("int64")
-        zone = zone & ok
-
-    out["triton_checks_passed"] = passes
-    out["triton_checks_total"] = len(TRITON_ZONE_METRICS)
-    out["triton_zone"] = zone
-    if weight_total > 0:
-        out["triton_war"] = (weighted_total / weight_total).clip(0, 100)
-    else:
-        out["triton_war"] = pd.Series(np.nan, index=df.index, dtype="float64")
-    return out
-
-
-def compute_triton_special(df, special_targets=None):
-    """Pass flags for the Stretch Big / 3PT Specialist gates."""
-    special_targets = {**TRITON_SPECIAL_DEFAULT_TARGETS, **(special_targets or {})}
-    out = pd.DataFrame(index=df.index)
-    for arch_key, archetype in TRITON_SPECIAL_ARCHETYPES.items():
-        meets = pd.Series(True, index=df.index)
-        for criterion in archetype["criteria"]:
-            values = _triton_metric_series(df, criterion)
-            target = float(special_targets.get(criterion["key"], criterion["target"]))
-            ok = (values >= target) if criterion["higher_is_better"] else (values <= target)
-            ok = ok.fillna(False)
-            out[f"triton_ok_{criterion['key']}"] = ok
-            meets = meets & ok
-        out[f"triton_is_{arch_key}"] = meets
-    return out
-
-
 TRITON_METRIC_SPREADS = build_triton_spreads(d1_df)
-
-
-def add_triton_columns(df):
-    """Attach the default-threshold Triton WAR columns so a player profile can
-    show the score without the tracker tab being open."""
-    frame = compute_triton_frame(df)
-    for col in frame.columns:
-        df[col] = frame[col]
-    special = compute_triton_special(df)
-    for col in special.columns:
-        df[col] = special[col]
-
-
-add_triton_columns(d1_df)
+add_triton_columns(d1_df, spreads=TRITON_METRIC_SPREADS)
 
 
 def triton_format_value(metric, value):
@@ -1586,17 +1035,6 @@ def make_explainer_page():
         {"class": "doc-shell"},
         ui.div({"class": "doc-inner"},
                ui.HTML(simple_markdown_to_html(content))))
-
-
-def historical_slider_range(column: str, step: float):
-    if HISTORICAL_PLAYER_INDEX.empty or column not in HISTORICAL_PLAYER_INDEX.columns:
-        return (0, 0)
-    vals = pd.to_numeric(HISTORICAL_PLAYER_INDEX[column], errors="coerce").dropna()
-    if vals.empty:
-        return (0, 0)
-    lo = math.floor(vals.min() / step) * step
-    hi = math.ceil(vals.max() / step) * step
-    return (float(lo), float(hi))
 
 
 def historical_row_by_season_player_id(season_player_id):
@@ -1915,474 +1353,6 @@ def make_triton_tracker_content(saved_ids):
     )
 
 
-TRITON_ARCHETYPE_FILTERS = {
-    "all": "All players",
-    "zone": "Triton Zone only",
-    "stretch_big": TRITON_SPECIAL_ARCHETYPES["stretch_big"]["label"],
-    "shooter": TRITON_SPECIAL_ARCHETYPES["shooter"]["label"],
-}
-# The board renders one table row per player and the public site runs this in
-# Pyodide, so the length is capped -- filters, not an unbounded board, are how
-# you find one specific player.
-TRITON_TABLE_LIMITS = {
-    "25": "Top 25",
-    "50": "Top 50",
-    "100": "Top 100",
-    "250": "Top 250",
-    "500": "Top 500",
-}
-TRITON_DEFAULT_MIN_MPG = 10.0
-TRITON_DEFAULT_MIN_GP = 5
-
-
-def triton_threshold_field(metric):
-    return ui.div(
-        {"class": "triton-threshold-field"},
-        ui.div(
-            ui.span(metric["label"], class_="triton-threshold-name"),
-            ui.span(metric["long"], class_="triton-threshold-hint"),
-            class_="triton-threshold-head",
-        ),
-        ui.input_numeric(
-            f"triton_target_{metric['key']}",
-            None,
-            value=float(metric["target"]),
-            min=float(metric["input_min"]),
-            max=float(metric["input_max"]),
-            step=float(metric["step"]),
-        ),
-    )
-
-
-def triton_weight_field(metric):
-    return ui.div(
-        {"class": "triton-weight-field"},
-        ui.div(
-            ui.span(metric["label"], class_="triton-threshold-name"),
-            ui.output_text(f"triton_weight_share_{metric['key']}", inline=True),
-            class_="triton-threshold-head",
-        ),
-        ui.input_slider(
-            f"triton_weight_{metric['key']}",
-            None,
-            min=0,
-            max=40,
-            value=float(metric["weight"]),
-            step=1,
-        ),
-    )
-
-
-def triton_special_field(criterion):
-    return ui.div(
-        {"class": "triton-threshold-field"},
-        ui.div(
-            ui.span(criterion["label"], class_="triton-threshold-name"),
-            ui.span(
-                "inches" if criterion.get("kind") == "height" else "percent",
-                class_="triton-threshold-hint",
-            ),
-            class_="triton-threshold-head",
-        ),
-        ui.input_numeric(
-            f"triton_target_{criterion['key']}",
-            None,
-            value=float(criterion["target"]),
-            min=float(criterion["input_min"]),
-            max=float(criterion["input_max"]),
-            step=float(criterion["step"]),
-        ),
-    )
-
-
-def make_triton_tab():
-    conf_choices = {conf: conf for conf in sorted(d1_df["confName"].dropna().unique())}
-    team_choices = {team: team for team in sorted(d1_df["team"].dropna().unique())}
-    return ui.div(
-        {"id": "triton-tab", "class": "tab-panel"},
-        ui.div(
-            {"class": "triton-shell"},
-            ui.div(
-                {"class": "triton-header-card"},
-                ui.div("Triton Zone", class_="triton-title"),
-                ui.div(
-                    "Every D-I player scored against the staff's Triton Zone targets and ranked "
-                    "by the weighted fit. Hitting a target is worth 70 on that metric, clearing it "
-                    "comfortably earns up to 100, so the board separates players who merely qualify "
-                    "from players who live in the zone.",
-                    class_="triton-lede",
-                ),
-                ui.div(
-                    {"class": "triton-filter-row"},
-                    ui.div(
-                        {"class": "triton-filter-field"},
-                        ui.div("Search player", class_="triton-filter-title"),
-                        ui.input_text("triton_q", None, placeholder="Search a player..."),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field"},
-                        ui.div("Conference", class_="triton-filter-title"),
-                        ui.input_selectize(
-                            "triton_conf",
-                            None,
-                            choices=conf_choices,
-                            selected=[],
-                            multiple=True,
-                            options={"placeholder": "  Any conference",
-                                     "plugins": ["remove_button"]},
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field"},
-                        ui.div("Team", class_="triton-filter-title"),
-                        ui.input_selectize(
-                            "triton_team",
-                            None,
-                            choices=team_choices,
-                            selected=[],
-                            multiple=True,
-                            options={"placeholder": "  Any team",
-                                     "plugins": ["remove_button"]},
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field"},
-                        ui.div("Pos", class_="triton-filter-title"),
-                        ui.input_selectize(
-                            "triton_pos",
-                            None,
-                            choices={pos: pos for pos in POSITIONS},
-                            selected=[],
-                            multiple=True,
-                            options={"placeholder": "  Any position",
-                                     "plugins": ["remove_button"]},
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field"},
-                        ui.div("Class", class_="triton-filter-title"),
-                        ui.input_selectize(
-                            "triton_cls",
-                            None,
-                            choices={cls: cls for cls in CLASSES},
-                            selected=[],
-                            multiple=True,
-                            options={"placeholder": "  Any class",
-                                     "plugins": ["remove_button"]},
-                        ),
-                    ),
-                ),
-                ui.div(
-                    {"class": "triton-filter-row triton-filter-row--second"},
-                    ui.div(
-                        {"class": "triton-filter-field triton-filter-field--wide"},
-                        ui.div("Archetype filter", class_="triton-filter-title"),
-                        ui.input_radio_buttons(
-                            "triton_archetype",
-                            None,
-                            choices=TRITON_ARCHETYPE_FILTERS,
-                            selected="all",
-                            inline=True,
-                        ),
-                        ui.input_checkbox(
-                            "triton_require_zone",
-                            "Archetype must also clear the full Triton Zone",
-                            value=False,
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field triton-filter-field--slider"},
-                        ui.div("Minutes per game minimum", class_="triton-filter-title"),
-                        ui.input_slider(
-                            "triton_min_mpg", None,
-                            min=0, max=35, value=TRITON_DEFAULT_MIN_MPG, step=0.5,
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field triton-filter-field--slider"},
-                        ui.div("Games played minimum", class_="triton-filter-title"),
-                        ui.input_slider(
-                            "triton_min_gp", None,
-                            min=0, max=35, value=TRITON_DEFAULT_MIN_GP, step=1,
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field triton-filter-field--slider"},
-                        ui.div("Zone checks cleared minimum", class_="triton-filter-title"),
-                        ui.input_slider(
-                            "triton_min_checks", None,
-                            min=0, max=len(TRITON_ZONE_METRICS), value=0, step=1,
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "triton-filter-field"},
-                        ui.div("Board length", class_="triton-filter-title"),
-                        ui.input_select(
-                            "triton_limit", None,
-                            choices=TRITON_TABLE_LIMITS, selected="100",
-                        ),
-                    ),
-                ),
-                ui.tags.details(
-                    {"class": "triton-more"},
-                    ui.tags.summary("Triton Zone thresholds"),
-                    ui.div(
-                        "The staff's targets. Every one is adjustable — a player clears a metric at "
-                        "the target and scores higher the further past it they get.",
-                        class_="triton-more-note",
-                    ),
-                    ui.div(
-                        {"class": "triton-threshold-grid"},
-                        *[triton_threshold_field(metric) for metric in TRITON_ZONE_METRICS],
-                    ),
-                    ui.div("Archetype criteria", class_="triton-more-subhead"),
-                    *[
-                        ui.div(
-                            ui.div(
-                                ui.span(archetype["label"], class_="triton-more-arch"),
-                                ui.span(archetype["note"], class_="triton-threshold-hint"),
-                                class_="triton-more-archhead",
-                            ),
-                            ui.div(
-                                {"class": "triton-threshold-grid"},
-                                *[triton_special_field(c) for c in archetype["criteria"]],
-                            ),
-                        )
-                        for archetype in TRITON_SPECIAL_ARCHETYPES.values()
-                    ],
-                    ui.input_action_button(
-                        "triton_reset_thresholds", "Reset thresholds", class_="triton-reset-btn"
-                    ),
-                ),
-                ui.tags.details(
-                    {"class": "triton-more"},
-                    ui.tags.summary("Triton Zone weights"),
-                    ui.div(
-                        "How much each metric counts toward the score. Weights are normalised, so "
-                        "only their sizes relative to each other matter — the percentage beside each "
-                        "label is its real share of the score.",
-                        class_="triton-more-note",
-                    ),
-                    ui.div(
-                        {"class": "triton-threshold-grid triton-threshold-grid--weights"},
-                        *[triton_weight_field(metric) for metric in TRITON_ZONE_METRICS],
-                    ),
-                    ui.input_action_button(
-                        "triton_reset_weights", "Reset weights", class_="triton-reset-btn"
-                    ),
-                ),
-            ),
-            ui.div(
-                {"class": "triton-results-head"},
-                ui.output_text("triton_results_count"),
-                ui.div(
-                    "Click a row to open the player profile. Green cells clear the target.",
-                    class_="triton-results-note",
-                ),
-            ),
-            ui.output_ui("triton_table_ui"),
-        ),
-    )
-
-
-
-def make_historical_beta_tab():
-    height_min, height_max = historical_slider_range("height_inches", 1)
-    mpg_min, mpg_max = historical_slider_range("mins_per_game", 0.5)
-    ppg_min, ppg_max = historical_slider_range("pts_per_game", 0.1)
-    apg_min, apg_max = historical_slider_range("ast_per_game", 0.1)
-    rpg_min, rpg_max = historical_slider_range("treb_per_game", 0.1)
-    bpm_min, bpm_max = historical_slider_range("bpm", 0.1)
-    return ui.div(
-        {"id": "hist-tab", "class": "tab-panel"},
-        ui.div(
-            {"class": "historical-shell"},
-            ui.div(
-                {"class": "historical-header-card"},
-                ui.div("Historical Players", class_="historical-title"),
-                ui.div("Search player", class_="historical-search-label"),
-                ui.input_text("hist_q", None, placeholder="Search a past player..."),
-                ui.div(
-                    {"class": "historical-filter-row"},
-                    ui.div(
-                        {"class": "historical-filter-field"},
-                        ui.div("Season", class_="historical-filter-title"),
-                        ui.input_selectize(
-                            "hist_season",
-                            None,
-                            choices={str(year): str(year) for year in HISTORICAL_FILTER_YEARS},
-                            selected=[],
-                            multiple=True,
-                            options={
-                                "placeholder": "\u00a0\u00a0Any season",
-                                "plugins": ["remove_button"],
-                            },
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "historical-filter-field"},
-                        ui.div("Conference", class_="historical-filter-title"),
-                        ui.input_selectize(
-                            "hist_conf",
-                            None,
-                            choices={conf: conf for conf in HISTORICAL_FILTER_CONFS},
-                            selected=[],
-                            multiple=True,
-                            options={
-                                "placeholder": "\u00a0\u00a0Any conference",
-                                "plugins": ["remove_button"],
-                            },
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "historical-filter-field"},
-                        ui.div("Team", class_="historical-filter-title"),
-                        ui.input_selectize(
-                            "hist_team",
-                            None,
-                            choices={team: team for team in HISTORICAL_FILTER_TEAMS},
-                            selected=[],
-                            multiple=True,
-                            options={
-                                "placeholder": "\u00a0\u00a0Any team",
-                                "plugins": ["remove_button"],
-                            },
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "historical-filter-field"},
-                        ui.div("Pos", class_="historical-filter-title"),
-                        ui.input_selectize(
-                            "hist_pos",
-                            None,
-                            choices={pos: pos for pos in POSITIONS},
-                            selected=[],
-                            multiple=True,
-                            options={
-                                "placeholder": "\u00a0\u00a0Any position",
-                                "plugins": ["remove_button"],
-                            },
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "historical-filter-field"},
-                        ui.div("Archetype", class_="historical-filter-title"),
-                        ui.input_selectize(
-                            "hist_archetype",
-                            None,
-                            choices={arch: arch for arch in HISTORICAL_BETA_ARCHETYPES},
-                            selected=[],
-                            multiple=True,
-                            options={
-                                "placeholder": "\u00a0\u00a0Any archetype",
-                                "plugins": ["remove_button"],
-                            },
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "historical-filter-field historical-filter-field--slider"},
-                        ui.div("Height range", class_="historical-filter-title"),
-                        ui.input_slider(
-                            "hist_height",
-                            None,
-                            min=int(height_min),
-                            max=int(height_max),
-                            value=[int(height_min), int(height_max)],
-                            step=1,
-                        ),
-                    ),
-                    ui.div(
-                        {"class": "historical-filter-field historical-filter-field--slider"},
-                        ui.div("Minutes minimum", class_="historical-filter-title"),
-                        ui.input_slider(
-                            "hist_mpg_min",
-                            None,
-                            min=float(mpg_min),
-                            max=float(mpg_max),
-                            value=max(5.0, float(mpg_min)),
-                            step=0.5,
-                        ),
-                    ),
-                ),
-                ui.tags.details(
-                    {"class": "historical-more-filters"},
-                    ui.tags.summary("Additional filters"),
-                    ui.div(
-                        {"class": "historical-filter-row historical-filter-row--additional"},
-                        ui.div(
-                            {"class": "historical-filter-field historical-filter-field--slider"},
-                            ui.div("MPG minimum", class_="historical-filter-title"),
-                            ui.input_slider(
-                                "hist_mpg_extra_min",
-                                None,
-                                min=float(mpg_min),
-                                max=float(mpg_max),
-                                value=float(mpg_min),
-                                step=0.5,
-                            ),
-                        ),
-                        ui.div(
-                            {"class": "historical-filter-field historical-filter-field--slider"},
-                            ui.div("APG minimum", class_="historical-filter-title"),
-                            ui.input_slider(
-                                "hist_apg_min",
-                                None,
-                                min=float(apg_min),
-                                max=float(apg_max),
-                                value=float(apg_min),
-                                step=0.1,
-                            ),
-                        ),
-                        ui.div(
-                            {"class": "historical-filter-field historical-filter-field--slider"},
-                            ui.div("PPG minimum", class_="historical-filter-title"),
-                            ui.input_slider(
-                                "hist_ppg_min",
-                                None,
-                                min=float(ppg_min),
-                                max=float(ppg_max),
-                                value=float(ppg_min),
-                                step=0.1,
-                            ),
-                        ),
-                        ui.div(
-                            {"class": "historical-filter-field historical-filter-field--slider"},
-                            ui.div("RPG minimum", class_="historical-filter-title"),
-                            ui.input_slider(
-                                "hist_rpg_min",
-                                None,
-                                min=float(rpg_min),
-                                max=float(rpg_max),
-                                value=float(rpg_min),
-                                step=0.1,
-                            ),
-                        ),
-                        ui.div(
-                            {"class": "historical-filter-field historical-filter-field--slider"},
-                            ui.div("BPM minimum", class_="historical-filter-title"),
-                            ui.input_slider(
-                                "hist_bpm_min",
-                                None,
-                                min=float(bpm_min),
-                                max=float(bpm_max),
-                                value=float(bpm_min),
-                                step=0.1,
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-            ui.div(
-                {"class": "historical-results-head"},
-                ui.output_text("hist_results_count"),
-                ui.div("Click a row to open a profile and load current-player comps.", class_="historical-results-note"),
-            ),
-            ui.output_ui("historical_table_ui"),
-            ui.output_ui("historical_current_comps_ui"),
-        ),
-    )
-
-
 SIMILARITY_METRIC_LABELS = {
     "mahalanobis": "Mahalanobis dist. over PC1-PC4",
     "euclidean": "Euclidean dist. over PC1-PC4",
@@ -2564,8 +1534,6 @@ def _format_compare_value(stat_key: str, value: object) -> str:
         if stat_key in SIMILARITY_COMPARE_MIXED_SCALE_PERCENT_KEYS and abs(num) <= 1:
             num *= 100
         return f"{num:.1f}%"
-    if stat_key == "pc":
-        return f"{num:.2f}"
     if stat_key in {"AST_TOV", "FTR", "3P_per_100_team_pos", "personal_fouls_per_40", "stops_per_40"}:
         return f"{num:.2f}"
     return f"{num:.1f}"
@@ -2731,10 +1699,6 @@ def _current_compare_profile_from_row(row):
         "player_id": row["id"],
         "subtitle": f"{row['team']} \u00b7 {row['cls']}",
         "height_inches": _as_float(row.get("heightIn")),
-        "PC1": _as_float(row.get("PC1")),
-        "PC2": _as_float(row.get("PC2")),
-        "PC3": _as_float(row.get("PC3")),
-        "PC4": _as_float(row.get("PC4")),
     }
     for compare_key, row_key in CURRENT_TO_COMPARE_KEY.items():
         profile[compare_key] = _as_float(row.get(row_key))
@@ -2743,29 +1707,6 @@ def _current_compare_profile_from_row(row):
 
 HISTORICAL_CURRENT_POOL = build_historical_current_pool()
 HISTORICAL_CURRENT_SIMILARITY_NORMS = _build_current_similarity_norms(HISTORICAL_CURRENT_POOL)
-HISTORICAL_FILTER_YEARS = (
-    sorted(
-        [
-            int(year)
-            for year in pd.to_numeric(HISTORICAL_PLAYER_INDEX.get("year"), errors="coerce").dropna().unique()
-        ],
-        reverse=True,
-    )
-    if not HISTORICAL_PLAYER_INDEX.empty
-    else []
-)
-HISTORICAL_FILTER_CONFS = (
-    sorted([conf for conf in HISTORICAL_PLAYER_INDEX.get("conf", pd.Series(dtype="object")).dropna().unique() if str(conf).strip()])
-    if not HISTORICAL_PLAYER_INDEX.empty
-    else []
-)
-HISTORICAL_FILTER_TEAMS = (
-    sorted([team for team in HISTORICAL_PLAYER_INDEX.get("team", pd.Series(dtype="object")).dropna().unique() if str(team).strip()])
-    if not HISTORICAL_PLAYER_INDEX.empty
-    else []
-)
-
-
 def _profile_from_neighbor_payload(payload, prefix: str, player_id: str = "", subtitle: str = "", year: int | None = None):
     profile = {
         "player_name": str(payload.get(f"{prefix}_name", "")).strip(),
@@ -2870,6 +1811,8 @@ def historical_current_comp_cards(
 
 def make_historical_profile_modal(row, *, exclude_low_sample: bool = False, triton_tracker_ids=None):
     source_profile = historical_compare_profile_from_row(row)
+    year = source_profile["year"]
+    season = f"{int(year) - 1}–{int(year) % 100:02}" if np.isfinite(year) else "Unknown season"
     initial_current_comp_cards = historical_current_comp_cards(
         row,
         exclude_low_sample=exclude_low_sample,
@@ -2895,7 +1838,7 @@ def make_historical_profile_modal(row, *, exclude_low_sample: bool = False, trit
             meta_badges.append(ui.span(value, class_="pos-badge", style="color:var(--ink-2);border-color:var(--rule)"))
 
     summary_items = [
-        ("Season", str(int(row["year"])) if pd.notna(row.get("year")) else "—", True),
+        ("Season", season, True),
         ("Conference", str(row.get("conf", "") or "—"), False),
         ("Team", str(row.get("team", "") or "—"), False),
         ("Pos", str(row.get("pos", "") or "—"), False),
@@ -3001,7 +1944,7 @@ def make_historical_profile_modal(row, *, exclude_low_sample: bool = False, trit
             ui.div(
                 ui.div(
                     {"class": "historical-profile-comps-head"},
-                    ui.div("Current Player Comps", class_="col-title"),
+                    ui.div(f"{D1_SEASON_LABEL} Player Comparisons", class_="col-title"),
                     ui.div(
                         ui.input_checkbox(
                             "hist_modal_exclude_low_sample_current",
@@ -3031,9 +1974,9 @@ def make_historical_profile_modal(row, *, exclude_low_sample: bool = False, trit
     )
     return ui.modal(
         body,
-        title=ui.HTML(
-            f"Player Profile <b>· {source_profile['player_name']}</b> "
-            f"<span class=\"sub\" style=\"margin-left:10px;\">historical player view</span>"
+        title=ui.span(
+            f"{season} Historical Profile ",
+            ui.tags.b(f"· {source_profile['player_name']}"),
         ),
         easy_close=True,
         size="xl",
@@ -3136,35 +2079,6 @@ def make_similarity_compare_modal(
         profiles.append(future_profile)
 
     compare_grid_cols = f"minmax(0, 1.2fr) {' '.join(['minmax(0, 1fr)' for _ in profiles])}"
-
-    pc_section = ui.div()
-    if comparison_origin == "current":
-        pc_rows = []
-        for key in ("PC1", "PC2", "PC3", "PC4"):
-            if all(key not in profile for profile in profiles):
-                continue
-            row_children = [ui.div(key, class_="compare-stat-label")]
-            for profile in profiles:
-                row_children.append(
-                    ui.div(_format_compare_value("pc", profile.get(key)), class_="compare-stat-value")
-                )
-            pc_rows.append(
-                ui.div(
-                    {"class": "compare-stat-row", "style": f"grid-template-columns:{compare_grid_cols};"},
-                    *row_children,
-                )
-            )
-        if pc_rows:
-            pc_section = ui.div(
-                ui.div("Current Similarity Inputs", class_="compare-section-title"),
-                ui.div(
-                    {"class": "compare-stat-head", "style": f"grid-template-columns:{compare_grid_cols};"},
-                    ui.div("Stat", class_="compare-stat-label"),
-                    *[ui.div(_compare_header_name(profile), class_="compare-stat-player") for profile in profiles],
-                ),
-                *pc_rows,
-                class_="compare-section",
-            )
 
     category_sections = []
     omitted_missing_rows = 0
@@ -3306,7 +2220,6 @@ def make_similarity_compare_modal(
         ui.div(
             {"class": "compare-modal-shell"},
             missing_note,
-            pc_section,
             *category_sections,
         ),
     )
@@ -3713,13 +2626,9 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
                if player_tag_ui else ui.div(),
                ui.div({"class": "bio-grid"},
                       bio_item("Division", division_label),
-                      bio_item("Archetype", archetype_label(row["primary_archetype"])),
-                      bio_item(
-                          "UCSD Position",
-                          str(row.get("archetype_v2_primary_label", "Unavailable"))
-                          if pd.notna(row.get("archetype_v2_primary_label", pd.NA))
-                          else "Unavailable",
-                      ),
+                      bio_item("Archetype", row["archetype_v2_primary_label"])
+                      if division_label == "D-I" and has_archetype_v2 else None,
+                      bio_item("UCSD Position", archetype_label(row["primary_archetype"])),
                       bio_item("Class",    row["cls"]),
                       bio_item("Eligibility Used", str(int(row["eligibility"])), mono=True),
                       bio_item("Height",   height_str(int(row["heightIn"])), mono=True),
@@ -3752,7 +2661,9 @@ def make_detail_modal(player_id, df, league_avg, similar_to_fn, division_label, 
         ui.div({"class": "detail-col"},
                ui.div(
                    {"class": "statline-header"},
-                   ui.div("Season Statline ", ui.span("2025–26", class_="sub"), class_="col-title"),
+                   ui.div("Season Statline ", ui.span(
+                       D1_SEASON_LABEL if division_label == "D-I" else "2025–26", class_="sub"
+                   ), class_="col-title"),
                    ui.div(
                        {"class": "statline-toggle",
                         "id": stat_view_id},
@@ -4115,6 +3026,10 @@ def hex_to_rgba(hex_color, alpha):
 WATCHLIST_STORAGE_KEY = "ucsd_watchlist_player_ids_v1"
 WATCHLIST_LINEUP_STORAGE_KEY = "ucsd_watchlist_lineup_candidates_v1"
 TRITON_TRACKER_STORAGE_KEY = "ucsd_triton_tracker_historical_ids_v1"
+if D1_PREVIEW_SNAPSHOT:
+    WATCHLIST_STORAGE_KEY += "_d1_preview"
+    WATCHLIST_LINEUP_STORAGE_KEY += "_d1_preview"
+    TRITON_TRACKER_STORAGE_KEY += "_d1_preview"
 
 
 def watchlist_rows(player_ids):
@@ -4485,6 +3400,7 @@ def make_sidebar(prefix, df, conferences):
     return ui.div(
         {"class": "sidebar"},
         ui.div("Filters", class_="sb-title"),
+        snapshot_note(D1["retrieved_at"]) if prefix == "d1" and D1_PREVIEW_SNAPSHOT else None,
         low_sample_toggle,
         ui.div(ui.div("Search by name", class_="sb-section-head"),
                ui.input_text(f"{prefix}_q", None, placeholder="e.g. Marcus Jackson"),
@@ -5923,1043 +4839,10 @@ app_ui = ui.page_fluid(
                 }
             }
 
-            /* ── Triton Zone tracker ───────────────────────────── */
-            .triton-shell {
-                padding:26px 28px 34px;
-                display:flex;
-                flex-direction:column;
-                gap:18px;
-            }
-            .triton-header-card,
-            .triton-table-card {
-                border:1px solid var(--rule);
-                background:rgba(19,27,41,.72);
-            }
-            .triton-header-card {
-                padding:24px 24px 18px;
-            }
-            .triton-title {
-                font-family:var(--serif);
-                font-size:44px;
-                line-height:1;
-                color:var(--ink);
-                margin-bottom:10px;
-            }
-            .triton-lede {
-                color:var(--ink-2);
-                font-size:13px;
-                line-height:1.6;
-                max-width:880px;
-                margin-bottom:20px;
-            }
-            .triton-filter-row {
-                display:grid;
-                grid-template-columns:repeat(5, minmax(0, 1fr));
-                gap:18px 22px;
-                align-items:start;
-            }
-            .triton-filter-row--second {
-                margin-top:16px;
-                padding-top:16px;
-                border-top:1px solid var(--rule);
-                grid-template-columns:minmax(0,1.7fr) repeat(3, minmax(0,1fr)) minmax(0,.7fr);
-            }
-            .triton-filter-title,
-            .triton-results-head,
-            .triton-table th {
-                font-family:var(--sans);
-                text-transform:uppercase;
-                letter-spacing:.10em;
-            }
-            .triton-filter-title {
-                color:var(--ink-2);
-                font-size:11px;
-                font-weight:700;
-                margin-bottom:8px;
-            }
-            .triton-header-card .shiny-input-container {
-                margin-bottom:0;
-                width:100%;
-            }
-            .triton-header-card input[type="text"],
-            .triton-header-card input[type="number"],
-            .triton-header-card select {
-                background:rgba(10,16,27,.7) !important;
-                border:1px solid var(--rule) !important;
-                color:var(--ink) !important;
-                border-radius:0 !important;
-                min-height:38px !important;
-                box-shadow:none !important;
-                font-family:var(--mono);
-                font-size:12px;
-            }
-            .triton-header-card .selectize-control {
-                margin-bottom:0;
-                padding:0 !important;
-                background:transparent !important;
-                box-shadow:none !important;
-                width:100% !important;
-            }
-            .triton-header-card .selectize-control .selectize-input {
-                background:rgba(10,16,27,.7) !important;
-                border:1px solid var(--rule) !important;
-                color:var(--ink) !important;
-                border-radius:0 !important;
-                min-height:38px !important;
-                box-shadow:none !important;
-                padding:6px 10px !important;
-                font-size:12px;
-                display:flex;
-                align-items:center;
-                flex-wrap:wrap;
-                gap:5px;
-            }
-            /* Selectize renders its own type="text" input inside the control;
-               without this it picks up the boxed field styling above and draws
-               a second border inside the first. */
-            .triton-header-card .selectize-input input[type="text"] {
-                background:transparent !important;
-                border:none !important;
-                min-height:0 !important;
-                height:auto !important;
-                padding:0 !important;
-                color:var(--ink) !important;
-            }
-            .triton-header-card .selectize-input > .item {
-                background:rgba(200,168,75,.16) !important;
-                border:1px solid rgba(200,168,75,.4) !important;
-                color:var(--ink) !important;
-                border-radius:2px;
-                padding:1px 6px !important;
-            }
-            .triton-header-card input::placeholder {
-                color:var(--ink-3) !important;
-                opacity:1;
-            }
-            .triton-header-card .selectize-input > input::placeholder {
-                color:var(--ink-3) !important;
-                opacity:1;
-            }
-            .triton-header-card .selectize-dropdown {
-                background:#111a2b !important;
-                border:1px solid var(--rule) !important;
-                color:var(--ink) !important;
-                font-size:12px;
-            }
-            .triton-header-card .selectize-dropdown .active {
-                background:rgba(200,168,75,.18) !important;
-                color:var(--ink) !important;
-            }
-            .triton-header-card .irs--shiny .irs-bar,
-            .triton-header-card .irs--shiny .irs-single,
-            .triton-header-card .irs--shiny .irs-from,
-            .triton-header-card .irs--shiny .irs-to {
-                background:var(--accent) !important;
-                border-color:var(--accent) !important;
-                color:#0f1623 !important;
-            }
-            .triton-header-card .irs--shiny .irs-line {
-                background:var(--rule-2) !important;
-            }
-            .triton-header-card .irs--shiny .irs-min,
-            .triton-header-card .irs--shiny .irs-max,
-            .triton-header-card .irs--shiny .irs-grid-text {
-                color:var(--ink-3) !important;
-                background:transparent !important;
-            }
-            .triton-filter-field--wide .radio-inline,
-            .triton-filter-field--wide .shiny-options-group label {
-                color:var(--ink-2);
-                font-size:12px;
-                margin-right:14px;
-            }
-            .triton-filter-field--wide .checkbox label {
-                color:var(--ink-3);
-                font-size:11px;
-                display:flex;
-                align-items:center;
-                gap:7px;
-                margin-top:8px;
-            }
-            .triton-more {
-                margin-top:18px;
-                border-top:1px solid var(--rule);
-                padding-top:14px;
-            }
-            .triton-more > summary {
-                cursor:pointer;
-                color:var(--accent);
-                font-family:var(--sans);
-                font-size:11px;
-                font-weight:700;
-                letter-spacing:.10em;
-                text-transform:uppercase;
-                list-style:none;
-            }
-            .triton-more > summary::before {
-                content:"+ ";
-                font-family:var(--mono);
-            }
-            .triton-more[open] > summary::before {
-                content:"− ";
-            }
-            .triton-more-note {
-                color:var(--ink-3);
-                font-size:12px;
-                line-height:1.55;
-                margin:10px 0 14px;
-                max-width:820px;
-            }
-            .triton-more-subhead {
-                margin:22px 0 8px;
-                color:var(--ink-2);
-                font-family:var(--sans);
-                font-size:11px;
-                font-weight:700;
-                letter-spacing:.10em;
-                text-transform:uppercase;
-            }
-            .triton-more-archhead {
-                display:flex;
-                align-items:baseline;
-                gap:10px;
-                flex-wrap:wrap;
-                margin:12px 0 8px;
-            }
-            .triton-more-arch {
-                color:var(--ink);
-                font-family:var(--serif);
-                font-size:17px;
-            }
-            .triton-threshold-grid {
-                display:grid;
-                grid-template-columns:repeat(auto-fill, minmax(170px, 1fr));
-                gap:14px 20px;
-            }
-            .triton-threshold-grid--weights {
-                grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));
-            }
-            /* Hints wrap to two lines at some widths, so let the grid row
-               stretch and push every input to the bottom of its cell instead
-               of leaving one field sitting lower than its neighbours. */
-            .triton-threshold-field,
-            .triton-weight-field {
-                display:flex;
-                flex-direction:column;
-                height:100%;
-            }
-            .triton-threshold-field .shiny-input-container,
-            .triton-weight-field .shiny-input-container {
-                margin-top:auto;
-            }
-            .triton-threshold-head {
-                display:flex;
-                align-items:baseline;
-                align-content:flex-start;
-                gap:8px;
-                margin-bottom:6px;
-                flex-wrap:wrap;
-            }
-            .triton-threshold-name {
-                color:var(--ink);
-                font-family:var(--mono);
-                font-size:12px;
-                font-weight:500;
-            }
-            .triton-threshold-hint {
-                color:var(--ink-3);
-                font-size:11px;
-            }
-            .triton-weight-field .shiny-text-output {
-                color:var(--accent);
-                font-family:var(--mono);
-                font-size:11px;
-            }
-            .triton-reset-btn {
-                margin-top:18px;
-                background:transparent;
-                color:var(--ink-2);
-                border:1px solid var(--rule-2);
-                border-radius:999px;
-                padding:7px 16px;
-                font-family:var(--sans);
-                font-size:10px;
-                font-weight:700;
-                letter-spacing:.10em;
-                text-transform:uppercase;
-                cursor:pointer;
-            }
-            .triton-reset-btn:hover {
-                color:var(--accent);
-                border-color:var(--accent);
-            }
-            .triton-results-head {
-                display:flex;
-                justify-content:space-between;
-                align-items:baseline;
-                gap:16px;
-                flex-wrap:wrap;
-                color:var(--ink-2);
-                font-size:11px;
-                font-weight:700;
-            }
-            .triton-results-note {
-                color:var(--ink-3);
-                font-weight:400;
-                letter-spacing:.04em;
-                text-transform:none;
-                font-size:12px;
-            }
-            .triton-table-card {
-                overflow-x:auto;
-            }
-            .triton-table {
-                width:100%;
-                border-collapse:collapse;
-                min-width:1280px;
-            }
-            .triton-table th,
-            .triton-table td {
-                padding:11px 12px;
-                border-bottom:1px solid rgba(89,113,154,.18);
-                text-align:left;
-                vertical-align:middle;
-                font-family:var(--mono);
-                font-size:12px;
-                color:var(--ink-2);
-                white-space:nowrap;
-            }
-            .triton-table th {
-                font-family:var(--sans);
-                font-size:10px;
-                font-weight:700;
-                color:var(--ink-2);
-                background:rgba(14,20,33,.94);
-                position:sticky;
-                top:0;
-                z-index:1;
-            }
-            .triton-table th button {
-                background:none;
-                border:none;
-                color:inherit;
-                font:inherit;
-                letter-spacing:inherit;
-                text-transform:inherit;
-                cursor:pointer;
-                padding:0;
-            }
-            .triton-table tbody tr {
-                cursor:pointer;
-                transition:background .14s ease;
-            }
-            .triton-table tbody tr:hover {
-                background:rgba(73,106,164,.12);
-            }
-            .triton-table tbody tr.is-selected {
-                background:rgba(200,168,75,.12);
-            }
-            .triton-col-rank {
-                width:46px;
-                color:var(--ink-3);
-            }
-            .triton-col-war {
-                min-width:96px;
-            }
-            .triton-table-player {
-                font-family:var(--serif);
-                font-size:16px;
-                color:var(--ink);
-            }
-            .triton-table-meta {
-                margin-top:3px;
-                color:var(--ink-3);
-                font-family:var(--mono);
-                font-size:10px;
-            }
-            .triton-war-value {
-                color:var(--accent);
-                font-size:14px;
-                font-weight:500;
-            }
-            .triton-war-track {
-                margin-top:4px;
-                height:4px;
-                width:84px;
-                background:var(--rule-2);
-            }
-            .triton-war-fill {
-                height:100%;
-                background:var(--accent);
-            }
-            .triton-zone-badge {
-                display:inline-block;
-                padding:2px 7px;
-                border-radius:999px;
-                border:1px solid var(--rule-2);
-                color:var(--ink-3);
-                font-size:11px;
-            }
-            .triton-zone-badge.is-full {
-                border-color:#4f9d69;
-                background:rgba(79,157,105,.16);
-                color:#8fd6a6;
-            }
-            .triton-metric {
-                display:inline-block;
-                padding:2px 6px;
-                border-radius:3px;
-            }
-            .triton-metric.is-pass {
-                background:rgba(79,157,105,.18);
-                color:#8fd6a6;
-            }
-            .triton-metric.is-miss {
-                color:var(--ink-3);
-            }
-            .triton-arch-tags {
-                display:flex;
-                gap:5px;
-                flex-wrap:wrap;
-            }
-            .triton-arch-tag {
-                display:inline-block;
-                padding:2px 7px;
-                border-radius:999px;
-                border:1px solid var(--accent);
-                color:var(--accent);
-                font-size:10px;
-                letter-spacing:.04em;
-            }
-            .triton-arch-tag.is-warn {
-                border-color:rgba(200,168,75,.45);
-                color:#f0d58a;
-                background:rgba(200,168,75,.12);
-            }
-            .triton-modal-grid {
-                display:grid;
-                grid-template-columns:repeat(auto-fit, minmax(58px, 1fr));
-                gap:8px;
-                margin:12px 0 10px;
-            }
-            .triton-modal-cell {
-                border:1px solid var(--rule);
-                background:rgba(10,16,27,.5);
-                padding:7px 8px;
-            }
-            .triton-modal-cell .k {
-                color:var(--ink-3);
-                font-family:var(--sans);
-                font-size:9px;
-                font-weight:700;
-                letter-spacing:.08em;
-                text-transform:uppercase;
-            }
-            .triton-modal-cell .v {
-                margin-top:3px;
-                font-family:var(--mono);
-                font-size:13px;
-                color:var(--ink-2);
-            }
-            .triton-modal-cell .v.is-pass {
-                color:#8fd6a6;
-            }
-            .triton-modal-cell .v.is-miss {
-                color:var(--ink-3);
-            }
-            .triton-modal-cell .s {
-                margin-top:2px;
-                color:var(--ink-3);
-                font-family:var(--mono);
-                font-size:9px;
-            }
-            .triton-empty {
-                padding:22px 24px;
-                color:var(--ink-3);
-                border:1px solid var(--rule);
-                background:rgba(19,27,41,.72);
-            }
-
-            /* ── Historical beta tab ── */
-            .historical-shell {
-                padding:26px 28px 34px;
-                display:flex;
-                flex-direction:column;
-                gap:18px;
-                flex:0 0 auto;
-                min-height:min-content;
-            }
-            .historical-header-card,
-            .historical-table-card,
-            .historical-comps-card {
-                border:1px solid var(--rule);
-                background:rgba(19,27,41,.72);
-            }
-            .historical-header-card {
-                padding:24px 24px 18px;
-            }
-            .historical-title {
-                font-family:var(--serif);
-                font-size:48px;
-                line-height:1;
-                color:var(--ink);
-                margin-bottom:22px;
-            }
-            .historical-search-label,
-            .historical-filter-title,
-            .historical-results-head,
-            .historical-table th {
-                font-family:var(--sans);
-                text-transform:uppercase;
-                letter-spacing:.10em;
-            }
-            .historical-search-label,
-            .historical-filter-title {
-                color:var(--ink-2);
-                font-size:11px;
-                font-weight:700;
-                margin-bottom:8px;
-            }
-            .historical-height-note {
-                color:var(--ink-3);
-                font-family:var(--mono);
-                font-size:11px;
-                margin-bottom:6px;
-            }
-            .historical-header-card .shiny-input-container {
-                margin-bottom:0;
-            }
-            .historical-header-card input[type="text"] {
-                background:rgba(10,16,27,.7) !important;
-                border:1px solid var(--rule) !important;
-                color:var(--ink) !important;
-                border-radius:0 !important;
-                min-height:44px !important;
-                box-shadow:none !important;
-            }
-            .historical-header-card .selectize-control {
-                margin-bottom:0;
-                padding:0 !important;
-                border:none !important;
-                background:transparent !important;
-                box-shadow:none !important;
-                width:100% !important;
-                min-height:0 !important;
-            }
-            .historical-header-card .selectize-control .selectize-input {
-                background:transparent !important;
-                border:none !important;
-                border-bottom:1px solid rgba(89,113,154,.34) !important;
-                color:var(--ink) !important;
-                border-radius:0 !important;
-                min-height:48px !important;
-                box-shadow:none !important;
-                display:flex;
-                align-items:center;
-                align-content:center;
-                gap:6px;
-                padding:10px 34px 12px 18px !important;
-                width:100% !important;
-                outline:none !important;
-            }
-            .historical-header-card .selectize-control.multi .selectize-input {
-                min-height:48px !important;
-                padding:10px 34px 12px 18px !important;
-            }
-            .historical-header-card .selectize-control .selectize-input.input-active,
-            .historical-header-card .selectize-control .selectize-input.dropdown-active,
-            .historical-header-card .selectize-control .selectize-input.focus {
-                background:transparent !important;
-                border:none !important;
-                box-shadow:none !important;
-            }
-            .historical-header-card .selectize-dropdown {
-                background:#131b29;
-                border-color:var(--rule);
-                color:var(--ink);
-            }
-            .historical-header-card .selectize-input.items {
-                display:flex !important;
-                flex-wrap:wrap !important;
-                gap:6px !important;
-                align-items:center !important;
-                min-height:48px !important;
-                padding:10px 34px 12px 18px !important;
-            }
-            .historical-header-card .selectize-input > .item {
-                background:rgba(73,106,164,.16) !important;
-                color:var(--ink) !important;
-                border:1px solid rgba(89,113,154,.34) !important;
-                border-radius:0 !important;
-                padding:4px 6px !important;
-                text-shadow:none !important;
-                max-width:100%;
-                font-family:var(--mono);
-                font-size:11px;
-                line-height:1.2;
-                margin:2px 4px 2px 0 !important;
-            }
-            .historical-header-card .selectize-input.items.not-full > input {
-                min-width:0 !important;
-            }
-            .historical-header-card .selectize-input.items > input,
-            .historical-header-card .selectize-input.items.full > input,
-            .historical-header-card .selectize-input input::placeholder {
-                color:var(--ink-3) !important;
-                opacity:1 !important;
-            }
-            .historical-header-card .selectize-control .selectize-input > input {
-                color:var(--ink) !important;
-                font-family:var(--sans) !important;
-                font-size:16px !important;
-                margin:0 !important;
-                flex:1 1 100% !important;
-                width:100% !important;
-                line-height:1.45 !important;
-                padding:0 !important;
-            }
-            .historical-header-card .selectize-control.single .selectize-input:after,
-            .historical-header-card .selectize-control.multi .selectize-input:after {
-                border-color:var(--ink-3) transparent transparent transparent !important;
-                right:12px !important;
-                top:50% !important;
-                margin-top:-2px !important;
-            }
-            .historical-header-card input[type="text"] {
-                width:100%;
-                padding:11px 14px;
-                font-family:var(--sans);
-                font-size:16px;
-            }
-            .historical-filter-row {
-                display:grid;
-                grid-template-columns:repeat(12, minmax(0, 1fr));
-                gap:16px;
-                margin-top:16px;
-                align-items:start;
-            }
-            .historical-filter-field {
-                grid-column:span 2;
-                min-width:0;
-            }
-            .historical-filter-field--slider {
-                grid-column:span 3;
-            }
-            .historical-more-filters {
-                margin-top:18px;
-                border-top:1px solid var(--rule);
-                padding-top:14px;
-                display:block;
-            }
-            .historical-more-filters summary {
-                cursor:pointer;
-                list-style:none;
-                color:var(--ink);
-                font-family:var(--serif);
-                font-size:20px;
-                display:inline-flex;
-                align-items:center;
-                gap:8px;
-                padding:2px 0;
-            }
-            .historical-more-filters summary::before {
-                content:"+";
-                font-family:var(--mono);
-                font-size:16px;
-                color:var(--ink-2);
-            }
-            .historical-more-filters[open] summary::before {
-                content:"−";
-            }
-            .historical-more-filters summary::-webkit-details-marker {
-                display:none;
-            }
-            .historical-filter-row--additional {
-                margin-top:14px;
-            }
-            .historical-filter-row--additional .shiny-options-group {
-                display:flex;
-                flex-wrap:wrap;
-                gap:10px 14px;
-            }
-            .historical-filter-row--additional .checkbox label {
-                color:var(--ink-2);
-                font-family:var(--mono);
-                font-size:11px;
-            }
-            .historical-results-head {
-                display:flex;
-                justify-content:space-between;
-                align-items:center;
-                gap:16px;
-                color:var(--ink-2);
-                font-size:11px;
-                font-weight:700;
-            }
-            .historical-results-note {
-                color:var(--ink-3);
-                font-family:var(--sans);
-                font-size:12px;
-                text-transform:none;
-                letter-spacing:0;
-            }
-            .historical-table-card {
-                overflow:auto;
-                flex:0 0 auto;
-                -webkit-overflow-scrolling:touch;
-            }
-            .historical-results-table-card {
-                height:clamp(360px, 50vh, 680px);
-                min-height:360px;
-                overscroll-behavior:contain;
-            }
-            .historical-table {
-                width:100%;
-                border-collapse:collapse;
-                min-width:1120px;
-            }
-            .historical-table th,
-            .historical-table td {
-                padding:14px 16px;
-                border-bottom:1px solid rgba(89,113,154,.18);
-                text-align:left;
-                vertical-align:middle;
-            }
-            .historical-table th {
-                font-size:11px;
-                font-weight:700;
-                color:var(--ink-2);
-                background:rgba(14,20,33,.94);
-                position:sticky;
-                top:0;
-                z-index:1;
-            }
-            .historical-table th button {
-                background:none;
-                border:none;
-                color:inherit;
-                font:inherit;
-                letter-spacing:inherit;
-                text-transform:inherit;
-                cursor:pointer;
-                padding:0;
-            }
-            .historical-table tbody tr {
-                cursor:pointer;
-                transition:background .14s ease;
-            }
-            .historical-table tbody tr:hover {
-                background:rgba(73,106,164,.12);
-            }
-            .historical-table tbody tr.is-selected {
-                background:rgba(200,168,75,.12);
-            }
-            .historical-table-player {
-                font-family:var(--serif);
-                font-size:18px;
-                color:var(--ink);
-            }
-            .historical-table-meta {
-                margin-top:4px;
-                color:var(--ink-3);
-                font-family:var(--mono);
-                font-size:11px;
-            }
-            .historical-empty {
-                padding:22px 24px;
-                color:var(--ink-3);
-                border:1px solid var(--rule);
-                background:rgba(19,27,41,.72);
-            }
-            .historical-comps-card {
-                padding:22px 24px;
-            }
-            .historical-comps-head {
-                display:flex;
-                justify-content:space-between;
-                align-items:flex-end;
-                gap:16px;
-                padding-bottom:12px;
-                border-bottom:1px solid var(--rule);
-                margin-bottom:14px;
-            }
-            .historical-comps-toggle {
-                display:flex;
-                align-items:center;
-                justify-content:flex-end;
-                min-width:220px;
-            }
-            .historical-comps-toggle .shiny-input-container {
-                width:auto;
-                margin:0;
-            }
-            .historical-comps-toggle .checkbox {
-                margin:0;
-            }
-            .historical-comps-toggle .checkbox label {
-                color:var(--ink-2);
-                font-family:var(--mono);
-                font-size:11px;
-                letter-spacing:.08em;
-                text-transform:uppercase;
-                display:flex;
-                align-items:center;
-                gap:8px;
-                margin:0;
-            }
-            .historical-comps-title {
-                color:var(--ink);
-                font-family:var(--serif);
-                font-size:30px;
-                line-height:1;
-            }
-            .historical-comps-subtitle {
-                color:var(--ink-3);
-                font-family:var(--sans);
-                font-size:13px;
-            }
-            .historical-comp-list {
-                display:grid;
-                grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
-                gap:12px;
-            }
-            .historical-comp-card {
-                border:1px solid var(--rule);
-                background:rgba(16,23,37,.8);
-                padding:14px;
-                cursor:pointer;
-                transition:border-color .14s ease, transform .14s ease;
-            }
-            .historical-comp-card:hover {
-                border-color:var(--ink-2);
-                transform:translateY(-1px);
-            }
-            .historical-comp-rank {
-                color:var(--ink-3);
-                font-family:var(--mono);
-                font-size:11px;
-                margin-bottom:8px;
-            }
-            .historical-comp-name {
-                color:var(--ink);
-                font-family:var(--serif);
-                font-size:24px;
-                line-height:1.05;
-            }
-            .historical-comp-meta {
-                display:flex;
-                flex-wrap:wrap;
-                gap:8px;
-                margin-top:8px;
-                color:var(--ink-3);
-                font-family:var(--sans);
-                font-size:13px;
-            }
-            .historical-comp-distance {
-                margin-top:14px;
-                color:var(--ink-2);
-                font-family:var(--mono);
-                font-size:11px;
-                text-transform:uppercase;
-                letter-spacing:.08em;
-            }
-            .historical-profile-modal {
-                display:grid;
-                gap:18px;
-            }
-            .historical-profile-hero {
-                border:1px solid var(--rule);
-                background:rgba(18,26,40,.72);
-                padding:20px 22px;
-            }
-            .historical-profile-badges {
-                display:flex;
-                flex-wrap:wrap;
-                gap:8px;
-                margin-top:12px;
-            }
-            .historical-profile-grid {
-                display:grid;
-                grid-template-columns:minmax(270px, .84fr) minmax(360px, 1fr) minmax(280px, .82fr);
-                gap:20px;
-                align-items:start;
-                padding:6px 2px 8px;
-                max-height:min(82vh, 920px);
-                min-height:0;
-                overflow:hidden;
-            }
-            .historical-profile-col {
-                min-width:0;
-                min-height:0;
-                display:grid;
-                gap:18px;
-                align-content:start;
-                max-height:min(82vh, 920px);
-                overflow-y:auto;
-                padding-right:8px;
-            }
-            .historical-profile-col::-webkit-scrollbar {
-                width:8px;
-            }
-            .historical-profile-col::-webkit-scrollbar-thumb {
-                background:rgba(96,124,174,.42);
-                border-radius:999px;
-            }
-            .historical-profile-col--stats {
-                padding-right:14px;
-            }
-            .historical-profile-bio-grid {
-                grid-template-columns:repeat(4, minmax(0, 1fr));
-                row-gap:14px;
-                column-gap:14px;
-            }
-            .historical-profile-comps {
-                min-height:0;
-                padding:16px 16px 18px;
-            }
-            .historical-profile-comps > .shiny-bound-output {
-                display:block;
-                min-height:0;
-            }
-            .historical-profile-comps > .shiny-bound-output:empty {
-                display:none;
-            }
-            .historical-profile-comps:has(> .shiny-bound-output:not(:empty)) > .historical-comp-list--initial {
-                display:none;
-            }
-            .historical-profile-comps .historical-comp-list {
-                grid-template-columns:1fr;
-                gap:12px;
-            }
-            .historical-profile-comps .historical-comp-card {
-                padding:14px 14px 15px;
-            }
-            .historical-profile-comps .historical-comp-name {
-                font-size:21px;
-                margin-bottom:2px;
-            }
-            .historical-profile-comps-head {
-                display:flex;
-                justify-content:space-between;
-                align-items:flex-start;
-                gap:12px;
-                margin-bottom:14px;
-            }
-            .historical-profile-comps-controls .shiny-input-container {
-                width:auto;
-                margin:0;
-            }
-            .historical-profile-comps-controls .checkbox {
-                margin:0;
-            }
-            .historical-profile-comps-controls .checkbox label {
-                color:var(--ink-2);
-                font-family:var(--mono);
-                font-size:11px;
-                letter-spacing:.08em;
-                text-transform:uppercase;
-                display:flex;
-                align-items:flex-start;
-                gap:8px;
-                margin:0;
-                line-height:1.35;
-            }
-            .historical-profile-section {
-                padding:16px 18px;
-            }
-            .historical-profile-section .compare-stat-row {
-                padding:12px 0;
-            }
-            .historical-profile-section .compare-section-title {
-                margin-bottom:10px;
-            }
-            .historical-profile-grade-list {
-                display:grid;
-                gap:10px;
-            }
-            .historical-profile-grade-row {
-                display:flex;
-                justify-content:space-between;
-                align-items:center;
-                gap:12px;
-                padding:10px 0;
-                border-bottom:1px solid rgba(60,79,112,.32);
-            }
-            .historical-profile-grade-row:last-child {
-                border-bottom:none;
-            }
-            .historical-profile-grade-label {
-                color:var(--ink-2);
-                font-family:var(--sans);
-                letter-spacing:.08em;
-                text-transform:uppercase;
-                font-size:11px;
-                font-weight:700;
-            }
-            .historical-profile-grade-value {
-                color:var(--ink);
-                font-family:var(--mono);
-                font-size:18px;
-            }
-            @media (max-width: 1180px) {
-                .triton-filter-row,
-                .triton-filter-row--second {
-                    grid-template-columns:repeat(2, minmax(0, 1fr));
-                }
-            }
-            @media (max-width: 760px) {
-                .triton-shell {
-                    padding:18px 16px 24px;
-                }
-                .triton-title {
-                    font-size:32px;
-                }
-                .triton-filter-row,
-                .triton-filter-row--second {
-                    grid-template-columns:minmax(0, 1fr);
-                }
-                .triton-results-head {
-                    flex-direction:column;
-                    align-items:flex-start;
-                }
-            }
-
-            @media (max-width: 1180px) {
-                .historical-filter-field,
-                .historical-filter-field--slider,
-                .historical-filter-field--sm {
-                    grid-column:span 6;
-                }
-            }
-            @media (max-width: 760px) {
-                .historical-shell {
-                    padding:18px 16px 24px;
-                }
-                .historical-title {
-                    font-size:34px;
-                }
-                .historical-results-head,
-                .historical-comps-head {
-                    flex-direction:column;
-                    align-items:flex-start;
-                }
-                .historical-comps-toggle {
-                    min-width:0;
-                    justify-content:flex-start;
-                }
-                .historical-filter-field,
-                .historical-filter-field--slider,
-                .historical-filter-field--sm {
-                    grid-column:span 12;
-                }
-                .historical-profile-grid {
-                    grid-template-columns:1fr;
-                }
-                .historical-profile-bio-grid {
-                    grid-template-columns:repeat(2, minmax(0, 1fr));
-                }
-            }
         """),
+        ui.include_css(str(HERE / "pages" / "division_i" / "styles.css"), method="inline"),
+        ui.include_css(str(HERE / "pages" / "triton_zone" / "styles.css"), method="inline"),
+        ui.include_css(str(HERE / "pages" / "historical_players" / "styles.css"), method="inline"),
         ui.tags.script("""
             var scatterConfigs = {
                 d1_scatter: { inputId: 'd1_plot_click' },
@@ -7411,7 +5294,7 @@ app_ui = ui.page_fluid(
 
         ui.div({"id": "masthead"},
             ui.div({"class": "mast-left"},
-                   ui.div(ui.HTML('NCAA Men\'s Basketball <span class="dot"></span> 2025–26'),
+                   ui.div("NCAA Men's Basketball ", ui.span(class_="dot"), f" {D1_SEASON_LABEL}",
                           class_="kicker"),
                    ui.div(ui.HTML("Player <em>Dashboard</em>"), class_="atlas-title")),
             ui.div({"class": "mast-meta"},
@@ -7447,10 +5330,7 @@ app_ui = ui.page_fluid(
 
         ui.div({"id": "tab-content"},
 
-            ui.div({"id": "d1-tab", "class": "tab-panel active"},
-                   ui.div({"class": "body-grid"},
-                          make_sidebar("d1", d1_df, d1_conferences),
-                          make_plot_area("d1"))),
+            make_division_i_tab(make_sidebar("d1", d1_df, d1_conferences), make_plot_area("d1")),
 
             ratings_tab_ui(),
 
@@ -7466,9 +5346,9 @@ app_ui = ui.page_fluid(
 
             make_similarity_beta_tab(),
 
-            make_triton_tab(),
+            make_triton_tab(d1_df),
 
-            make_historical_beta_tab(),
+            make_historical_beta_tab(HISTORICAL_PLAYER_INDEX, HISTORICAL_BETA_ARCHETYPES),
 
             ui.div({"id": "info-tab", "class": "tab-panel"},
                    make_explainer_page()),
@@ -8783,7 +6663,8 @@ def server(input, output, session):
     @reactive.calc
     def triton_scored():
         frame = compute_triton_frame(
-            d1_df, targets=triton_targets(), weights=triton_weights()
+            d1_df, targets=triton_targets(), weights=triton_weights(),
+            spreads=TRITON_METRIC_SPREADS
         )
         special = compute_triton_special(d1_df, special_targets=triton_special_targets())
         keep = [
@@ -9061,10 +6942,14 @@ def server(input, output, session):
         row_id = str(input.hist_select_row() or "").strip()
         if not row_id:
             return
-        hist_modal_exclude_low_sample_state.set(False)
         source_row = historical_row_by_id(row_id)
         if source_row is None:
             return
+        modal_player.set(None)
+        modal_req.set(None)
+        hist_selected.set(row_id)
+        hist_modal_selected.set(row_id)
+        hist_modal_exclude_low_sample_state.set(False)
         ui.modal_show(
             make_historical_profile_modal(
                 source_row,
