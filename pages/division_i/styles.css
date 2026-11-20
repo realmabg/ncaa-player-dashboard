@@ -1,0 +1,7 @@
+.sb-snapshot-note {
+    margin: 0 0 14px;
+    color: var(--ink-2);
+    font-family: var(--sans);
+    font-size: 11px;
+    line-height: 1.4;
+}
