@@ -98,6 +98,21 @@
   z-index: 4;
 }
 
+#ratings-tab .triton-table:not(.ratings-table--frozen) :is(th, td):nth-child(2) {
+  position: sticky;
+  inset-inline-start: 0;
+  box-shadow: 1px 0 var(--rule-2);
+}
+
+#ratings-tab .triton-table:not(.ratings-table--frozen) td:nth-child(2) {
+  z-index: 2;
+  background: var(--ratings-row);
+}
+
+#ratings-tab .triton-table:not(.ratings-table--frozen) th:nth-child(2) {
+  z-index: 4;
+}
+
 #ratings-tab .ratings-table--frozen :is(th, td):nth-child(1) {
   --frozen-width: var(--rank-width);
   --frozen-offset: 0px;
@@ -177,7 +192,7 @@
   border-inline-end: 2px solid var(--ratings-divider, var(--rule-2));
 }
 
-#ratings-tab .ratings-table--frozen td:nth-child(4) .ratings-stat-value {
+#ratings-tab .ratings-impact-column .ratings-stat-value {
   color: var(--accent);
 }
 
@@ -201,6 +216,14 @@
 
 #ratings-tab .ratings-percentile.high { color: var(--pos-gf); }
 #ratings-tab .ratings-percentile.low { color: #f28b8b; }
+
+#ratings-tab .triton-table td.ratings-stat-cell:has(.ratings-percentile.high) {
+  background: color-mix(in srgb, var(--pos-gf) 14%, var(--ratings-row));
+}
+
+#ratings-tab .triton-table td.ratings-stat-cell:has(.ratings-percentile.low) {
+  background: color-mix(in srgb, #f28b8b 14%, var(--ratings-row));
+}
 
 #ratings-tab td.ratings-skill-cell {
   min-width: 118px;
