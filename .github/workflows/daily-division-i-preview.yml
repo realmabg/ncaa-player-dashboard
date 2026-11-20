@@ -5,6 +5,10 @@ on:
     - cron: '30 6 * * *'
       timezone: America/Los_Angeles
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/daily-division-i-preview.yml'
+      - 'scripts/build_division_i_snapshot.py'
 
 permissions:
   contents: read

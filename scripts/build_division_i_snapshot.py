@@ -9,7 +9,8 @@ import math
 from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 TORVIK = "https://barttorvik.com"
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -114,8 +115,13 @@ DERIVED_HEADERS = [
 
 
 def download(path):
-    with urlopen(TORVIK + path, timeout=45) as response:
-        return response.read().decode("utf-8-sig")
+    url = TORVIK + path
+    request = Request(url, headers={"User-Agent": "ncaa-player-dashboard/1.0"})
+    try:
+        with urlopen(request, timeout=45) as response:
+            return response.read().decode("utf-8-sig")
+    except HTTPError as error:
+        raise RuntimeError(f"Torvik download failed with HTTP {error.code}: {url}") from error
 
 
 def read_players(payload, season):
