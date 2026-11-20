@@ -9,6 +9,7 @@ on:
     paths:
       - '.github/workflows/daily-division-i-preview.yml'
       - 'scripts/build_division_i_snapshot.py'
+      - 'scripts/probe_hoopr_division_i.R'
 
 permissions:
   contents: read
@@ -19,6 +20,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,3 +42,24 @@ jobs:
           name: division-i-2027-preview
           path: data/current/division-i-2027.csv
           if-no-files-found: error
+
+  hoopr-hosted-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: sportsdataverse/hoopR
+      - name: Fetch both BartTorvik feeds
+        run: Rscript scripts/probe_hoopr_division_i.R "$RUNNER_TEMP/hoopr-probe"
+      - name: Validate and join the downloaded data
+        run: >-
+          python3 scripts/build_division_i_snapshot.py --season 2027
+          --players "$RUNNER_TEMP/hoopr-probe/players.csv"
+          --shooting "$RUNNER_TEMP/hoopr-probe/shooting.json"
+          --output "$RUNNER_TEMP/hoopr-probe/current.csv"
